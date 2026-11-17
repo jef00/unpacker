@@ -6,9 +6,23 @@ Made for people who download multi-part video archives (e.g. from Telegram)
 and just want the video: drag *any* part onto the program, and it finds the
 rest, asks for a password if needed, and unpacks next to the archive.
 
-Or don't drag anything: put the program next to the archives and
-double-click it. It unpacks every archive in its own folder. (From a
-terminal, `unpacker` with no arguments uses the folder you're in.)
+## Download
+
+Always the newest version (links you can share):
+
+- **Windows:** [unpacker-windows-x64.exe](https://github.com/jef00/unpacker/releases/latest/download/unpacker-windows-x64.exe)
+- **Mac (Apple silicon):** [unpacker-macos-arm64](https://github.com/jef00/unpacker/releases/latest/download/unpacker-macos-arm64)
+- **Linux (64-bit):** [unpacker-linux-x64](https://github.com/jef00/unpacker/releases/latest/download/unpacker-linux-x64)
+
+Or pick a version on the [releases page](https://github.com/jef00/unpacker/releases).
+Releases are built by CI from a version tag; see `CHANGELOG.md`.
+
+## Using it
+
+Drag any part of an archive onto the program. Or don't drag anything: put
+the program next to the archives and double-click it. It unpacks every
+archive in its own folder. (From a terminal, `unpacker` with no arguments
+uses the folder you're in.)
 
 While it works you see a progress bar with speed and time left. When every
 file came out fine, it asks `Delete the 12 archive files permanently? [Y/n]`;

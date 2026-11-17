@@ -77,3 +77,54 @@ jobs:
         with:
           path: unpacker-linux-x64
           archive: false
+
+  # Push a version tag and this publishes a GitHub release with all three
+  # binaries, once every test and build job above has passed:
+  #
+  #   (bump `version` in Cargo.toml, add a section to CHANGELOG.md)
+  #   git tag v0.2.0 && git push origin v0.2.0
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, linux-static]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      # v8 saves unzipped (`archive: false`) artifacts as plain files.
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Check the tag matches Cargo.toml
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag is $GITHUB_REF_NAME but Cargo.toml says $version"
+            exit 1
+          fi
+      - name: Release notes from CHANGELOG.md
+        run: |
+          awk -v v="${GITHUB_REF_NAME#v}" '
+            index($0, "## [" v "]") == 1 { on = 1; next }
+            /^## \[/ { on = 0 }
+            on' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::No '## [${GITHUB_REF_NAME#v}]' section in CHANGELOG.md"
+            exit 1
+          fi
+      - name: Checksums
+        run: |
+          cd dist
+          ls -l
+          test -f unpacker-windows-x64.exe && test -f unpacker-macos-arm64 && test -f unpacker-linux-x64
+          sha256sum unpacker-* > SHA256SUMS
+          cat SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "unpacker ${GITHUB_REF_NAME#v}" \
+            --notes-file notes.md
