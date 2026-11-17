@@ -11,7 +11,7 @@
 //! |---------------|------------------------------------------------|---------------------|
 //! | `RarNew`      | `x.part1.rar`, `x.part2.rar`, …                | by part number      |
 //! | `RarOld`      | `x.rar`, `x.r00` … `x.r99`, `x.s00`, …         | `.rar` first        |
-//! | `Split`       | `x.7z.001`, `x.7z.002`, … (any inner type)     | by number           |
+//! | `Split`       | `x.7z.001`, `x.zip.001`, `x.rar.001`, …        | by number           |
 //! | `ZipSpanned`  | `x.z01`, `x.z02`, …, `x.zip`                   | `.zip` **last**     |
 //!
 //! Limitation: from filenames alone we can't tell whether *trailing* parts
@@ -32,7 +32,8 @@ pub enum Scheme {
     RarNew,
     /// `x.rar`, `x.r00`, `x.r01`, … (classic scene style).
     RarOld,
-    /// `x.7z.001`, `x.7z.002`, … — raw byte splits of any file.
+    /// `x.7z.001`, `x.7z.002`, … — byte splits of a 7z, ZIP or RAR archive.
+    /// Splits of anything else (`movie.mkv.001`) are not volume sets.
     Split,
     /// `x.z01`, `x.z02`, …, `x.zip` — PKZIP spanned archive.
     ZipSpanned,
@@ -79,8 +80,8 @@ impl VolumeSet {
     /// are full of dots (`Some.Show.S01E01`) that are *not* extensions.
     pub fn output_name(&self) -> &str {
         if self.scheme == Scheme::Split {
-            for ext in [".7z", ".zip", ".rar"] {
-                if let Some(stem) = strip_suffix_ci(&self.base, ext)
+            for ext in ARCHIVE_EXTENSIONS {
+                if let Some(stem) = strip_suffix_ci(&self.base, &format!(".{ext}"))
                     && !stem.is_empty()
                 {
                     return stem;
@@ -284,8 +285,10 @@ fn classify(name: &str) -> Option<Piece<'_>> {
         return numbered(Kind::RarOld, stem, index, rest);
     }
 
-    // `.001`, `.002`, … — byte split of whatever `stem` is.
+    // `.001`, `.002`, … — byte split of an archive (`x.7z.001`). Splits of
+    // anything else, like a raw `movie.mkv.001`, are deliberately not sets.
     if ext.len() >= 3
+        && is_archive_name(stem)
         && let Some(n) = parse_number(ext).filter(|&n| n >= 1)
     {
         return numbered(Kind::Split, stem, n, ext);
@@ -357,6 +360,19 @@ fn display_name(path: &Path) -> String {
 /// Windows and macOS filesystems are case-insensitive by default.
 fn same_name(a: &str, b: &str) -> bool {
     a == b || a.to_lowercase() == b.to_lowercase()
+}
+
+/// Archive types that can be byte-split into `.001`, `.002`, … parts.
+const ARCHIVE_EXTENSIONS: [&str; 3] = ["7z", "zip", "rar"];
+
+/// `movie.7z` → true, `movie.mkv` / `movie` → false.
+fn is_archive_name(name: &str) -> bool {
+    name.rsplit_once('.').is_some_and(|(stem, ext)| {
+        !stem.is_empty()
+            && ARCHIVE_EXTENSIONS
+                .iter()
+                .any(|a| ext.eq_ignore_ascii_case(a))
+    })
 }
 
 fn parse_number(s: &str) -> Option<u32> {
@@ -648,9 +664,18 @@ mod tests {
     }
 
     #[test]
-    fn split_raw_video_keeps_its_extension() {
-        let set = run("movie.mkv.001", &["movie.mkv.001", "movie.mkv.002"]).unwrap();
-        assert_eq!(set.output_name(), "movie.mkv");
+    fn split_of_a_non_archive_is_not_a_volume_set() {
+        for name in ["movie.mkv.001", "data.001", "movie.mkv.002"] {
+            let set = run(name, &["movie.mkv.001", "movie.mkv.002", "data.001"]).unwrap();
+            assert_eq!(set.scheme, Scheme::Single, "{name}");
+            assert_eq!(set.parts.len(), 1, "{name}");
+        }
+    }
+
+    #[test]
+    fn split_inner_extension_is_case_insensitive() {
+        let set = run("Movie.7Z.002", &["Movie.7Z.001", "Movie.7Z.002"]).unwrap();
+        assert_eq!((set.scheme, set.output_name()), (Scheme::Split, "Movie"));
     }
 
     #[test]

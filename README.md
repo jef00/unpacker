@@ -94,5 +94,3 @@ Own code: MIT. RAR support uses RarLab's UnRAR source, which may be used to
 - Progress bar; GUI window instead of a console.
 - On Windows, only pause at exit when launched by drag-and-drop.
 - If an archive has one top-level folder, skip the extra nesting level.
-- Raw split videos (`movie.mkv.001`) are recognised by discovery but not
-  joined yet (they're not archives, so `detect` rejects them).
