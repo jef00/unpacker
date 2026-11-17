@@ -1,0 +1,54 @@
+[package]
+name = "unpacker"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+description = "Drop archive parts on it, get your files out. RAR, 7z, ZIP and all volume styles."
+license = "MIT"
+
+[dependencies]
+thiserror = "2"
+# Decompression only: no compressors, no time crate.
+zip = { version = "9", default-features = false, features = [
+    "aes-crypto",
+    "bzip2",
+    "deflate-flate2-zlib-rs",
+    "deflate64",
+    "lzma",
+    "ppmd",
+    "xz",
+    "zstd",
+] }
+sevenz-rust2 = { version = "0.25", default-features = false, features = [
+    "aes256",
+    "bzip2",
+    "deflate",
+    "ppmd",
+    "zstd",
+] }
+unrar = "0.5"
+
+[dev-dependencies]
+tempfile = "3"
+# Full zip crate (incl. writer + compressors) to build test archives.
+zip = "9"
+sevenz-rust2 = "0.25" # default features include the compressor
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+# unrar 0.5.8 (latest; also unfixed on master) over-reads a buffer in its
+# volume-change callback. See vendor/unrar/PATCHED.md. Drop this once fixed
+# upstream.
+[patch.crates-io]
+unrar = { path = "vendor/unrar" }
