@@ -28,6 +28,10 @@ sevenz-rust2 = { version = "0.25", default-features = false, features = [
 ] }
 unrar = "0.5"
 
+[target.'cfg(windows)'.dependencies]
+# GetConsoleProcessList: pause at exit only for drag-and-drop launches.
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
+
 [dev-dependencies]
 tempfile = "3"
 # Full zip crate (incl. writer + compressors) to build test archives.
@@ -35,7 +39,9 @@ zip = "9"
 sevenz-rust2 = "0.25" # default features include the compressor
 
 [lints.rust]
-unsafe_code = "forbid"
+# `deny`, not `forbid`: the one Windows console call in main.rs needs an
+# explicit, justified `#[allow(unsafe_code)]`. Nothing else may use unsafe.
+unsafe_code = "deny"
 
 [lints.clippy]
 unwrap_used = "deny"
