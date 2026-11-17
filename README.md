@@ -81,6 +81,9 @@ cargo build --release   # → target/release/unpacker(.exe), ~2 MB
 in its volume-change callback (undefined behaviour on every multi-volume
 RAR). Details and removal instructions: `vendor/unrar/PATCHED.md`.
 
+`build.rs` links `advapi32` on Windows, which `unrar_sys` 0.5.8 forgets
+(it relied on Rust's std, which no longer links it). See the comment there.
+
 ## Licences
 
 Own code: MIT. RAR support uses RarLab's UnRAR source, which may be used to
