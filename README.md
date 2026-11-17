@@ -118,6 +118,18 @@ cargo build --release   # → target/release/unpacker(.exe), ~2 MB
   on Windows, Xcode Command Line Tools on macOS, `g++` on Linux.
 - The Windows build links the C/C++ runtime statically
   (`.cargo/config.toml`), so the `.exe` runs on a clean Windows install.
+- The Linux release binary is fully static (musl), so it runs on any 64-bit
+  Linux, old distros and NAS boxes included. CI builds it in Alpine; to do
+  the same locally:
+
+  ```sh
+  docker run --rm -v "$PWD":/src -w /src rust:1-alpine \
+    sh -c 'apk add --no-cache g++ musl-dev && cargo build --release'
+  ```
+
+CI uploads each binary as a plain file, no zip: `unpacker-windows-x64.exe`,
+`unpacker-macos-arm64` and `unpacker-linux-x64`. (On macOS and Linux, run
+`chmod +x` on it after downloading.)
 
 ### Vendored dependency
 

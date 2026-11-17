@@ -18,11 +18,12 @@ jobs:
       matrix:
         # All three images ship a C++ compiler (MSVC / clang / g++) for UnRAR.
         include:
-          - { os: windows-latest, artifact: unpacker-windows-x64, file: unpacker.exe }
+          - { os: windows-latest, artifact: unpacker-windows-x64.exe, file: unpacker.exe }
           - { os: macos-latest, artifact: unpacker-macos-arm64, file: unpacker }
+          # Tests only: the Linux binary comes from `linux-static` below.
           - { os: ubuntu-latest, artifact: "", file: "" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -34,8 +35,45 @@ jobs:
       - name: Build release binary
         if: matrix.artifact != ''
         run: cargo build --release
-      - uses: actions/upload-artifact@v4
+      # A plainly named single file, downloadable without unzipping.
+      - name: Name it for its platform
+        if: matrix.artifact != ''
+        shell: bash
+        run: cp "target/release/${{ matrix.file }}" "${{ matrix.artifact }}"
+      - uses: actions/upload-artifact@v7
         if: matrix.artifact != ''
         with:
-          name: ${{ matrix.artifact }}
-          path: target/release/${{ matrix.file }}
+          path: ${{ matrix.artifact }}
+          archive: false
+
+  # A fully static Linux binary (musl): runs on any 64-bit Linux, old
+  # distros and NAS boxes included, unlike a binary built on the Ubuntu
+  # runner, which needs a glibc at least as new as that runner's.
+  #
+  # Built in Alpine, whose musl-based g++ links UnRAR's C++ (libstdc++)
+  # statically. GitHub's JavaScript actions can't run *inside* an Alpine
+  # container, so the container is started by hand.
+  linux-static:
+    name: linux-static
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test and build in Alpine (musl)
+        run: |
+          docker run --rm -v "$PWD":/src -w /src rust:1-alpine sh -euc '
+            apk add --no-cache g++ musl-dev
+            cargo test --release --locked
+            cargo build --release --locked
+          '
+      - name: Check that it is fully static
+        run: |
+          file target/release/unpacker
+          file target/release/unpacker | grep -qE "static(-pie)? linked"
+      - name: Smoke test on the (glibc) host
+        run: target/release/unpacker --version
+      - name: Name it for its platform
+        run: cp target/release/unpacker unpacker-linux-x64
+      - uses: actions/upload-artifact@v7
+        with:
+          path: unpacker-linux-x64
+          archive: false
