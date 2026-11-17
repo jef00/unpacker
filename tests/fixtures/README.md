@@ -8,6 +8,15 @@ what users actually download, not just against what our own test code writes.
 | File            | Made with                                      |
 |-----------------|------------------------------------------------|
 | `zipcrypto.zip` | Info-ZIP: `zip -P secret zipcrypto.zip hello.txt` |
+| `spanned.z01`…`.z05`, `.zip` | `zip -r -s 64k`: `video.bin` + 1200 small files; data *and* central directory cross parts |
+| `spanned-pw.z01`, `.zip` | `zip -s 64k -P secret`: ZipCrypto in a spanned set |
+| `spanned64.z01`, `.z02`, `.zip` | `zip -fz -s 64k`: forced ZIP64 records |
+
+Spanned content is deterministic so tests can check every byte:
+`video.bin`/`secret.bin` are the first 150 000 / 100 000 bytes of
+`x = (x * 1103515245 + 12345) mod 2^31; byte = (x >> 16) & 0xFF` from
+`x = 12345` (`lcg_bytes` in `tests/zip_backend.rs`), and `files/NNNN.txt`
+is `"file N\n"` repeated `N % 7 + 1` times.
 
 ## `7z/`
 

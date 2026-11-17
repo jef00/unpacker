@@ -1,25 +1,27 @@
 //! ZIP backend, on top of the `zip` crate.
 //!
-//! Single `.zip` files and `.zip.001` splits both go through `MultiReader`,
-//! so they share one code path. Spanned archives (`.z01`, `.z02`, …, `.zip`)
-//! are multi-disk ZIPs whose offsets are relative to each disk; the `zip`
-//! crate doesn't support those, so we say so clearly instead of failing with
-//! a confusing "invalid archive".
+//! Single `.zip` files and `.zip.001` splits go through `MultiReader`.
+//! Spanned archives (`.z01`, `.z02`, …, `.zip`) go through `zip_spanned`,
+//! which presents them as a single-disk ZIP. After that, one code path.
 
-use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Read, Seek};
 use std::path::Path;
 
 use zip::ZipArchive;
 use zip::result::ZipError;
 
 use super::output::{EntryInfo, write_entry};
+use super::zip_spanned;
 use super::{Entry, Extractor, Options, Progress, last_part_hint};
 use crate::discovery::{Scheme, VolumeSet};
 use crate::error::{Error, Result};
 use crate::multi_reader::MultiReader;
 
-type Archive = ZipArchive<BufReader<MultiReader<File>>>;
+/// Any seekable source: glued parts, or a rewritten spanned set.
+trait Source: Read + Seek {}
+impl<T: Read + Seek> Source for T {}
+
+type Archive = ZipArchive<BufReader<Box<dyn Source>>>;
 
 pub struct ZipExtractor {
     archive: Archive,
@@ -28,14 +30,11 @@ pub struct ZipExtractor {
 
 impl ZipExtractor {
     pub fn new(set: &VolumeSet, password: Option<&str>) -> Result<Self> {
-        if set.scheme == Scheme::ZipSpanned {
-            return Err(Error::Unsupported(
-                "spanned ZIP archives (.z01, .z02, …). Open it with 7-Zip, \
-                 or ask for a single .zip or a .zip.001 split instead."
-                    .into(),
-            ));
-        }
-        let reader = BufReader::new(MultiReader::open(&set.parts)?);
+        let source: Box<dyn Source> = match set.scheme {
+            Scheme::ZipSpanned => Box::new(zip_spanned::open(set)?),
+            _ => Box::new(MultiReader::open(&set.parts)?),
+        };
+        let reader = BufReader::new(source);
         let archive = ZipArchive::new(reader).map_err(|e| open_error(set, e))?;
         Ok(Self {
             archive,
@@ -142,6 +141,16 @@ fn convert(e: ZipError) -> Error {
 fn open_error(set: &VolumeSet, e: ZipError) -> Error {
     match (set.scheme, convert(e)) {
         (Scheme::Split, Error::Corrupt(_)) => Error::Corrupt(last_part_hint(set)),
+        // A lone last disk that happens to start with a local header passes
+        // detection, then fails here as multi-disk. (Usually `backend::open`
+        // catches it first.)
+        (Scheme::Single, err @ (Error::Corrupt(_) | Error::Unsupported(_))) => {
+            if zip_spanned::lone_last_disk(set) {
+                Error::MissingVolume(format!("{}.z01", set.base))
+            } else {
+                err
+            }
+        }
         (_, other) => other,
     }
 }

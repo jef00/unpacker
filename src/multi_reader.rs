@@ -50,6 +50,11 @@ impl<R: Read + Seek> MultiReader<R> {
         self.total_len == 0
     }
 
+    /// Offset in the combined stream where each part begins.
+    pub fn part_starts(&self) -> &[u64] {
+        &self.starts
+    }
+
     /// Index of the part holding byte `pos`, or `None` at/after the end.
     fn part_at(&self, pos: u64) -> Option<usize> {
         if pos >= self.total_len {
