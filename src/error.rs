@@ -13,7 +13,7 @@ pub enum Error {
     #[error("\"{0}\" and \"{1}\" both claim to be the same part. Remove one of them.")]
     ConflictingVolumes(String, String),
 
-    #[error("\"{}\" is not a RAR, 7z or ZIP archive.", .0.display())]
+    #[error("\"{}\" is not a RAR, 7z or ZIP archive.", file_name(.0))]
     UnknownFormat(PathBuf),
 
     #[error("Skipped \"{0}\": the archive tries to write outside the target folder.")]
@@ -36,3 +36,11 @@ pub enum Error {
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+/// Just the file name, like every other message; the full path is noise.
+fn file_name(path: &std::path::Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    )
+}
