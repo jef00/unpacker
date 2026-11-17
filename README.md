@@ -15,7 +15,9 @@ Always the newest version (links you can share):
 - **Linux (64-bit):** [unpacker-linux-x64](https://github.com/jef00/unpacker/releases/latest/download/unpacker-linux-x64)
 
 Or pick a version on the [releases page](https://github.com/jef00/unpacker/releases).
-Releases are built by CI from a version tag; see `CHANGELOG.md`.
+Releases are built by CI: bump the version in `Cargo.toml`, add a
+`CHANGELOG.md` section, then **Actions → CI → Run workflow** (or push a
+`v<version>` tag).
 
 ## Using it
 

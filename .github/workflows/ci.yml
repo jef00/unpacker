@@ -3,6 +3,14 @@ name: CI
 on:
   push:
   pull_request:
+  # The "Run workflow" button (Actions → CI): tests, builds and, if ticked,
+  # publishes a release of the version in Cargo.toml. Works from a phone.
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Publish a release of the version in Cargo.toml
+        type: boolean
+        default: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -78,14 +86,17 @@ jobs:
           path: unpacker-linux-x64
           archive: false
 
-  # Push a version tag and this publishes a GitHub release with all three
-  # binaries, once every test and build job above has passed:
+  # Publishes a GitHub release with all three binaries, once every test and
+  # build job above has passed. First bump `version` in Cargo.toml and add a
+  # section to CHANGELOG.md, then either:
   #
-  #   (bump `version` in Cargo.toml, add a section to CHANGELOG.md)
-  #   git tag v0.2.0 && git push origin v0.2.0
+  #   - Actions → CI → Run workflow (creates the tag v<version> itself), or
+  #   - git tag v0.2.0 && git push origin v0.2.0
   release:
     name: release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.release)
     needs: [build, linux-static]
     runs-on: ubuntu-latest
     permissions:
@@ -97,21 +108,29 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Check the tag matches Cargo.toml
+      - name: Work out the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+          tag="v$version"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "$tag" ]; then
             echo "::error::Tag is $GITHUB_REF_NAME but Cargo.toml says $version"
             exit 1
           fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::$tag is already released. Bump the version in Cargo.toml first."
+            exit 1
+          fi
+          echo "TAG=$tag" >> "$GITHUB_ENV"
       - name: Release notes from CHANGELOG.md
         run: |
-          awk -v v="${GITHUB_REF_NAME#v}" '
+          awk -v v="${TAG#v}" '
             index($0, "## [" v "]") == 1 { on = 1; next }
             /^## \[/ { on = 0 }
             on' CHANGELOG.md > notes.md
           if [ ! -s notes.md ]; then
-            echo "::error::No '## [${GITHUB_REF_NAME#v}]' section in CHANGELOG.md"
+            echo "::error::No '## [${TAG#v}]' section in CHANGELOG.md"
             exit 1
           fi
       - name: Checksums
@@ -121,10 +140,12 @@ jobs:
           test -f unpacker-windows-x64.exe && test -f unpacker-macos-arm64 && test -f unpacker-linux-x64
           sha256sum unpacker-* > SHA256SUMS
           cat SHA256SUMS
+      # Creates the tag on this commit when it doesn't exist yet (the button).
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "unpacker ${GITHUB_REF_NAME#v}" \
+          gh release create "$TAG" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "unpacker ${TAG#v}" \
             --notes-file notes.md
