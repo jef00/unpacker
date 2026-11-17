@@ -18,6 +18,29 @@ Spanned content is deterministic so tests can check every byte:
 `x = 12345` (`lcg_bytes` in `tests/zip_backend.rs`), and `files/NNNN.txt`
 is `"file N\n"` repeated `N % 7 + 1` times.
 
+## `tar/`
+
+Made with GNU tar 1.35 (`--sort=name --owner=0 --group=0 --mtime=2026-01-01`)
+and the standard `gzip -9 -n`, `bzip2 -9`, `xz -9`, and libzstd level 19 (via
+Python `zstandard`). All `show*` files hold the same `Show/` folder:
+
+| Entry | Covers |
+|-------|--------|
+| `Show/Season 1/episode.mkv` | 60 000 bytes from `lcg_bytes` (see `zip/` below) |
+| `Show/a-very-long-folder-name-…/and-an-even-longer-file-name-…txt` | path over 100 characters (GNU long name / PAX) |
+| `Show/täst ünïcode.txt` | non-ASCII name |
+| `Show/Extras/` | empty folder |
+| `Show/link-out` → `../../../etc/passwd` | symlink pointing outside: must be skipped |
+| `Show/hardlink.srt` | hard link: skipped |
+
+| File | Format |
+|------|--------|
+| `show.tar` | GNU tar format |
+| `show.tar.gz`, `show.tar.bz2`, `show.tar.zst` | the same, compressed |
+| `show-pax.tar.xz` | PAX (POSIX.1-2001) format, xz |
+| `evil.tar` | Python `tarfile`: `../escaped.txt`, `/abs.txt`, symlink `up` → `..`, then `up/pwned.txt` |
+| `notes.txt.gz` | a gzip that isn't a tar: must be refused |
+
 ## `7z/`
 
 Copied from the [py7zr](https://github.com/miurahr/py7zr) test suite

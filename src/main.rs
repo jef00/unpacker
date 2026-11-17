@@ -48,7 +48,8 @@ enum Command {
 const USAGE: &str = "\
 Usage: unpacker [OPTIONS] [FILE]...
 
-Unpacks RAR, 7z and ZIP archives, including all multi-part styles. Give any
+Unpacks RAR, 7z, ZIP and tar archives (also .tar.gz, .tar.bz2, .tar.xz and
+.tar.zst), including all multi-part styles. Give any
 part of an archive; the other parts are found automatically. With no FILE,
 unpacks every archive in the program's folder (or the current folder).
 

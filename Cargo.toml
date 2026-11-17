@@ -3,7 +3,7 @@ name = "unpacker"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.93"
-description = "Drop archive parts on it, get your files out. RAR, 7z, ZIP and all volume styles."
+description = "Drop archive parts on it, get your files out. RAR, 7z, ZIP, tar and all volume styles."
 license = "MIT"
 
 [dependencies]
@@ -29,6 +29,14 @@ sevenz-rust2 = { version = "0.25", default-features = false, features = [
 unrar = "0.5"
 # Progress bar; hides itself when output isn't a terminal.
 indicatif = "0.18.6"
+# Tar and the compressions around it (.tar.gz, .tar.bz2, .tar.xz, .tar.zst).
+# All but `tar` are already used by zip / sevenz-rust2; same versions and
+# backends, so nothing extra gets compiled.
+tar = { version = "0.4", default-features = false }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+bzip2 = "0.6"
+lzma-rust2 = { version = "0.25", default-features = false, features = ["std", "xz"] }
+zstd = { version = "0.14", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 # GetConsoleProcessList: pause at exit only for drag-and-drop launches.

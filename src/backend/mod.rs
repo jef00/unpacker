@@ -8,6 +8,7 @@
 mod output;
 mod rar;
 mod sevenz;
+mod tar;
 mod zip;
 mod zip_spanned;
 
@@ -176,6 +177,8 @@ pub fn open(set: &VolumeSet, password: Option<&str>) -> Result<Box<dyn Extractor
         Format::Rar4 | Format::Rar5 => Box::new(rar::RarExtractor::new(set, password)?),
         Format::SevenZ => Box::new(sevenz::SevenZExtractor::new(set, password)?),
         Format::Zip => Box::new(zip::ZipExtractor::new(set, password)?),
+        Format::Tar => Box::new(tar::TarExtractor::new(set, None)?),
+        Format::Compressed(codec) => Box::new(tar::TarExtractor::new(set, Some(codec))?),
     })
 }
 

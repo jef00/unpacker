@@ -33,6 +33,15 @@ everything was skipped (for example because it was already there).
 | RAR    | ✅ RAR4/RAR5 | `.part1.rar`… · `.rar`+`.r00`… · `.rar.001`… | ✅ incl. encrypted headers |
 | 7z     | ✅      | `.7z.001`, `.7z.002`, …                           | ✅ incl. encrypted headers |
 | ZIP    | ✅      | `.zip.001`… · spanned `.z01`, `.z02`, …, `.zip`   | ✅ AES and ZipCrypto       |
+| tar    | ✅ `.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` | `.tar.001`, `.tar.gz.001`, … | — (tar has none) |
+
+Tar archives: regular files and folders are extracted; symbolic links, hard
+links and device files are skipped (with a warning, so the archive is kept).
+Tar has no checksums on its contents, so a cut-off archive is caught by its
+missing end marker instead: a split `.tar` with its last part missing is an
+error, not a silently incomplete result. A lone `.gz`/`.xz` that isn't a tar
+(say `notes.txt.gz`) is refused, and double-click mode leaves such files
+alone.
 
 Drop any part; the first one is found automatically. Missing parts are
 reported by name: `Part "movie.part3.rar" is missing.`
@@ -77,6 +86,7 @@ backend/
   zip_spanned.rs spanned .z01 sets → rewritten single-disk view (ZIP64-aware)
   sevenz.rs      `sevenz-rust2`, via MultiReader
   rar.rs         `unrar` (UnRAR C++), opens volumes by name
+  tar.rs         `tar` + gzip/bzip2/xz/zstd decoders, via MultiReader
 ```
 
 Rules of the road:
@@ -89,12 +99,12 @@ Rules of the road:
 ## Testing
 
 ```sh
-cargo test             # 145 tests
+cargo test             # 159 tests
 cargo test --release   # same suite, optimised (what ships)
 ```
 
-Most backend tests run against **real archives made by WinRAR, 7-Zip and
-Info-ZIP** (`tests/fixtures/`, sources and licences in its README), with
+Most backend tests run against **real archives made by WinRAR, 7-Zip,
+Info-ZIP and GNU tar** (`tests/fixtures/`, sources and licences in its README), with
 expected checksums from independent tools (`rarfile`, `py7zr`). Several
 tests run the actual binary, including typing passwords on stdin.
 

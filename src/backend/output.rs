@@ -129,7 +129,7 @@ fn copy_with_progress(data: &mut dyn Read, out: &File, progress: &mut dyn Progre
 /// reported them (a real disk/network failure), they mean the data is bad.
 /// Decoders don't agree on an `ErrorKind` for that: `zip` uses `InvalidData`,
 /// `sevenz-rust2` uses `Other` for a checksum mismatch.
-fn read_error(e: io::Error) -> Error {
+pub(crate) fn read_error(e: io::Error) -> Error {
     if e.raw_os_error().is_some() {
         return Error::Io(e);
     }

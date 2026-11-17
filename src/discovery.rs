@@ -32,7 +32,7 @@ pub enum Scheme {
     RarNew,
     /// `x.rar`, `x.r00`, `x.r01`, … (classic scene style).
     RarOld,
-    /// `x.7z.001`, `x.7z.002`, … — byte splits of a 7z, ZIP or RAR archive.
+    /// `x.7z.001`, `x.tar.gz.001`, … — byte splits of a 7z, ZIP, RAR or tar archive.
     /// Splits of anything else (`movie.mkv.001`) are not volume sets.
     Split,
     /// `x.z01`, `x.z02`, …, `x.zip` — PKZIP spanned archive.
@@ -79,16 +79,15 @@ impl VolumeSet {
     /// Only strips archive extensions we know about, because release names
     /// are full of dots (`Some.Show.S01E01`) that are *not* extensions.
     pub fn output_name(&self) -> &str {
-        if self.scheme == Scheme::Split {
-            for ext in ARCHIVE_EXTENSIONS {
-                if let Some(stem) = strip_suffix_ci(&self.base, &format!(".{ext}"))
-                    && !stem.is_empty()
-                {
-                    return stem;
-                }
-            }
+        match self.scheme {
+            // `movie.7z` (from `movie.7z.001`), `movie.tar.gz` → `movie`.
+            Scheme::Split => without_archive_suffix(&self.base),
+            // `base` already lost one extension: `movie.tar.gz` → `movie.tar`.
+            Scheme::Single => strip_suffix_ci(&self.base, ".tar")
+                .filter(|stem| !stem.is_empty())
+                .unwrap_or(&self.base),
+            _ => &self.base,
         }
-        &self.base
     }
 }
 
@@ -391,17 +390,36 @@ fn same_name(a: &str, b: &str) -> bool {
     a == b || a.to_lowercase() == b.to_lowercase()
 }
 
-/// Archive types that can be byte-split into `.001`, `.002`, … parts.
-const ARCHIVE_EXTENSIONS: [&str; 3] = ["7z", "zip", "rar"];
+/// Archive types (also when byte-split into `.001`, `.002`, … parts).
+const ARCHIVE_EXTENSIONS: [&str; 9] = [
+    "7z", "zip", "rar", "tar", "tgz", "tbz", "tbz2", "txz", "tzst",
+];
 
-/// `movie.7z` → true, `movie.mkv` / `movie` → false.
+/// Compressions that make an archive only around a tar: `x.tar.gz` is one,
+/// a lone `notes.txt.gz` or `syslog.xz` isn't.
+const TAR_COMPRESSIONS: [&str; 4] = ["gz", "bz2", "xz", "zst"];
+
+/// `movie.7z`, `movie.tar.gz` → true; `movie.mkv`, `log.gz`, `movie` → false.
 fn is_archive_name(name: &str) -> bool {
-    name.rsplit_once('.').is_some_and(|(stem, ext)| {
-        !stem.is_empty()
-            && ARCHIVE_EXTENSIONS
-                .iter()
-                .any(|a| ext.eq_ignore_ascii_case(a))
-    })
+    let Some((stem, ext)) = name.rsplit_once('.') else {
+        return false;
+    };
+    let is = |list: &[&str]| list.iter().any(|e| ext.eq_ignore_ascii_case(e));
+    !stem.is_empty()
+        && (is(&ARCHIVE_EXTENSIONS)
+            || (is(&TAR_COMPRESSIONS)
+                && strip_suffix_ci(stem, ".tar").is_some_and(|s| !s.is_empty())))
+}
+
+/// `movie.7z` → `movie`, `movie.tar.gz` → `movie`; anything else unchanged.
+fn without_archive_suffix(name: &str) -> &str {
+    if !is_archive_name(name) {
+        return name;
+    }
+    let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
+    strip_suffix_ci(stem, ".tar")
+        .filter(|s| !s.is_empty())
+        .unwrap_or(stem)
 }
 
 fn parse_number(s: &str) -> Option<u32> {
@@ -822,6 +840,60 @@ mod tests {
         let old: Vec<&str> = old.iter().map(String::as_str).collect();
         let set = run("m.rar", &old).unwrap();
         assert_eq!(set.next_part_name(), Some("m.s00".into()));
+    }
+
+    #[test]
+    fn tar_names() {
+        for name in [
+            "a.tar",
+            "a.tgz",
+            "a.tar.gz",
+            "a.TAR.XZ",
+            "a.tar.bz2",
+            "a.tbz2",
+            "a.tar.zst",
+        ] {
+            assert!(is_archive_name(name), "{name}");
+        }
+        for name in ["log.gz", "syslog.xz", ".tar.gz", "a.mkv.zst", ".tar"] {
+            assert!(!is_archive_name(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn tar_output_names() {
+        let single = |name: &str| run(name, &[name]).unwrap();
+        assert_eq!(single("Show.S01.tar.gz").output_name(), "Show.S01");
+        assert_eq!(single("Show.S01.tar").output_name(), "Show.S01");
+        assert_eq!(single("Show.S01.tgz").output_name(), "Show.S01");
+        assert_eq!(single("Show.S01.mkv").output_name(), "Show.S01");
+
+        let split = run("m.tar.gz.002", &["m.tar.gz.001", "m.tar.gz.002"]).unwrap();
+        assert_eq!((split.scheme, split.output_name()), (Scheme::Split, "m"));
+        let split = run("m.tar.001", &["m.tar.001", "m.tar.002"]).unwrap();
+        assert_eq!((split.scheme, split.output_name()), (Scheme::Split, "m"));
+        // Not tar inside: still not a split.
+        assert_eq!(
+            run("log.gz.001", &["log.gz.001"]).unwrap().scheme,
+            Scheme::Single
+        );
+    }
+
+    #[test]
+    fn double_click_picks_tars_but_not_lone_compressed_files() {
+        let files = files(&[
+            "a.tar.gz",
+            "b.tar",
+            "c.tar.xz.001",
+            "c.tar.xz.002",
+            "log.gz",
+            "x.mkv",
+        ]);
+        let names: Vec<String> = archives_among(&files)
+            .iter()
+            .map(|p| display_name(p))
+            .collect();
+        assert_eq!(names, ["a.tar.gz", "b.tar", "c.tar.xz.001"]);
     }
 
     #[test]
