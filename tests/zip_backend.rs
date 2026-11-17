@@ -454,7 +454,7 @@ fn binary_prompts_for_password_and_retries() {
         .stdin
         .take()
         .unwrap()
-        .write_all(b"wrong\nletmein\n\n") // last line answers the Windows pause
+        .write_all(b"wrong\nletmein\n\n") // spare newline: harmless if no pause
         .unwrap();
     let output = child.wait_with_output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);

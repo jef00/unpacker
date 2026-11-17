@@ -140,15 +140,52 @@ fn file_label(path: &Path) -> String {
     )
 }
 
-/// When launched by drag-and-drop, Windows closes the console the moment we
-/// exit, so the user never sees the result. Wait for Enter first.
+/// When launched by drag-and-drop or double-click, Windows gives us a console
+/// window of our own and closes it the moment we exit, so the user would
+/// never see the result. Then (and only then) wait for Enter.
 ///
-/// TODO: only pause when we own the console (GetConsoleProcessList == 1),
-/// so running from an existing terminal doesn't pause.
+/// From cmd, PowerShell or a script we exit straight away: the terminal stays
+/// open anyway, and a pause would hang batch jobs waiting for input.
 fn pause_before_exit() {
-    if cfg!(windows) {
+    if alone_on_console() {
         print!("\nPress Enter to close…");
         let _ = io::stdout().flush();
         let _ = io::stdin().read_line(&mut String::new());
+    }
+}
+
+/// Whether Windows created this console just for us. A console started by
+/// Explorer has exactly one process attached (us); inside a terminal, the
+/// shell is attached too. Same trick 7-Zip and others use.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn alone_on_console() -> bool {
+    use windows_sys::Win32::System::Console::GetConsoleProcessList;
+
+    // We only need to tell "1" from "more than 1", so room for 2 IDs is
+    // enough: if there are more, the call still returns the total count.
+    let mut process_ids = [0u32; 2];
+    // SAFETY: the pointer and length describe a valid, writable buffer that
+    // outlives the call; the API writes at most `len` IDs into it. It returns
+    // 0 on failure (e.g. no console at all), which counts as "not alone".
+    let count =
+        unsafe { GetConsoleProcessList(process_ids.as_mut_ptr(), process_ids.len() as u32) };
+    count == 1
+}
+
+#[cfg(not(windows))]
+fn alone_on_console() -> bool {
+    false // Terminals on macOS/Linux don't vanish when a program exits.
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `cargo test` always runs inside a terminal or CI shell, never as a
+    /// console of its own, so it must never be treated as drag-and-drop.
+    #[test]
+    fn test_runner_does_not_count_as_drag_and_drop() {
+        assert!(!alone_on_console());
     }
 }
