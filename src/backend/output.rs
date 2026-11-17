@@ -53,6 +53,18 @@ pub(crate) fn plan_entry(
         }
         Err(e) => return Err(e),
     };
+    let relative = match &opts.strip_top_folder {
+        Some(top) => match relative.strip_prefix(top) {
+            // The top folder's own entry: it *is* `dest` now.
+            Ok(rest) if rest.as_os_str().is_empty() => {
+                fs::create_dir_all(dest)?;
+                return Ok(Plan::Directory);
+            }
+            Ok(rest) => rest.to_path_buf(),
+            Err(_) => relative,
+        },
+        None => relative,
+    };
     let target = dest.join(relative);
 
     if entry.is_dir {
@@ -284,6 +296,7 @@ mod tests {
         fs::write(dir.path().join("x.txt"), "mine").unwrap();
         let opts = Options {
             overwrite: Overwrite::Replace,
+            ..Options::default()
         };
         write_entry(
             dir.path(),
@@ -362,6 +375,37 @@ mod tests {
             plan_entry(dir.path(), &file("a/c.txt"), &opts, &mut p).unwrap(),
             Plan::File(dir.path().join("a").join("c.txt"))
         );
+    }
+
+    #[test]
+    fn strips_the_top_folder_when_asked() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("out");
+        let mut p = Recorder::default();
+        let opts = Options {
+            strip_top_folder: Some(PathBuf::from("Movie")),
+            ..Options::default()
+        };
+        let top = EntryInfo {
+            name: "Movie/",
+            size: 0,
+            is_dir: true,
+        };
+        assert_eq!(
+            plan_entry(&dest, &top, &opts, &mut p).unwrap(),
+            Plan::Directory
+        );
+        assert!(dest.is_dir());
+        assert_eq!(
+            plan_entry(&dest, &file("Movie\\subs/nl.srt"), &opts, &mut p).unwrap(),
+            Plan::File(dest.join("subs").join("nl.srt"))
+        );
+        // Only whole components match: "MovieX" is not inside "Movie".
+        assert_eq!(
+            plan_entry(&dest, &file("MovieX/a.txt"), &opts, &mut p).unwrap(),
+            Plan::File(dest.join("MovieX").join("a.txt"))
+        );
+        assert!(p.warnings.is_empty());
     }
 
     #[test]

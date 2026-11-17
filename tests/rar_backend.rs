@@ -296,3 +296,46 @@ fn binary_prompts_for_rar_password() {
         ["stest1.txt", "stest2.txt"]
     );
 }
+
+/// Everything in `rar5-subdirs.rar` sits in `sub/`, so the program unpacks
+/// it to `rar5-subdirs/…` rather than `rar5-subdirs/sub/…`.
+#[test]
+fn binary_skips_a_single_top_level_folder() {
+    let tmp = copy_fixtures(&["rar/rar5-subdirs.rar"]);
+    let output = Command::new(env!("CARGO_BIN_EXE_unpacker"))
+        .arg(tmp.path().join("rar5-subdirs.rar"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}");
+
+    let out = tmp.path().join("rar5-subdirs");
+    assert_files(
+        &out,
+        &[
+            "dir1/file1.txt",
+            "dir2/file2.txt",
+            "with space/long fn.txt",
+            "üȵĩöḋè/file.txt",
+        ],
+        &[0xe229_f704, 0xc904_a4c7, 0x71b7_247d, 0x2fec_89c1],
+    );
+    assert!(out.join("empty").is_dir());
+    assert!(!out.join("sub").exists());
+}
+
+#[test]
+fn library_keeps_the_nesting_unless_asked() {
+    let tmp = copy_fixtures(&["rar/rar5-subdirs.rar"]);
+    let set = discovery::discover_on_disk(&tmp.path().join("rar5-subdirs.rar")).unwrap();
+    let mut ex = backend::open(&set, None).unwrap();
+    assert_eq!(
+        backend::single_top_folder(&ex.list().unwrap()),
+        Some("sub".into())
+    );
+    // `Options::default()` doesn't strip: callers opt in.
+    let (result, _) = unpack(tmp.path(), "rar5-subdirs.rar", None);
+    result.unwrap();
+    assert!(tmp.path().join("out/sub/dir1/file1.txt").exists());
+}

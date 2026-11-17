@@ -11,11 +11,12 @@ mod sevenz;
 mod zip;
 mod zip_spanned;
 
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use crate::detect::{self, Format};
 use crate::discovery::VolumeSet;
 use crate::error::{Error, Result};
+use crate::safety::sanitize_entry_path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
@@ -38,6 +39,45 @@ pub enum Overwrite {
 #[derive(Debug, Clone, Default)]
 pub struct Options {
     pub overwrite: Overwrite,
+    /// Leave this leading folder out of every entry's path, so an archive
+    /// that holds just `Movie/…` doesn't unpack to `movie/Movie/…`.
+    /// Use [`single_top_folder`] to find it. Entries outside it are written
+    /// unchanged.
+    pub strip_top_folder: Option<PathBuf>,
+}
+
+/// If everything in the archive sits inside one top-level folder, returns
+/// that folder (as it will be named on disk), so the caller can skip the
+/// extra nesting level via [`Options::strip_top_folder`].
+///
+/// Returns `None` when there is more than one top-level item, when the only
+/// top-level item is a file, or when the folder is empty. Names that would be
+/// skipped as unsafe don't count. Comparison is exact (case-sensitive), so on
+/// Windows `Movie/` and `movie/` count as two folders: the safe side.
+pub fn single_top_folder(entries: &[Entry]) -> Option<PathBuf> {
+    let mut top: Option<PathBuf> = None;
+    let mut has_content = false;
+    for entry in entries {
+        let Ok(path) = sanitize_entry_path(&entry.name) else {
+            continue;
+        };
+        let mut components = path.components();
+        let first = match components.next() {
+            Some(Component::Normal(first)) => PathBuf::from(first),
+            _ => return None,
+        };
+        let nested = components.next().is_some();
+        if !nested && !entry.is_dir {
+            return None; // a file at the top level
+        }
+        has_content |= nested;
+        match &top {
+            Some(existing) if *existing != first => return None,
+            Some(_) => {}
+            None => top = Some(first),
+        }
+    }
+    top.filter(|_| has_content)
 }
 
 /// Progress callbacks, so backends stay independent of the UI.
@@ -94,4 +134,61 @@ pub fn open(set: &VolumeSet, password: Option<&str>) -> Result<Box<dyn Extractor
         Format::SevenZ => Box::new(sevenz::SevenZExtractor::new(set, password)?),
         Format::Zip => Box::new(zip::ZipExtractor::new(set, password)?),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entries(list: &[(&str, bool)]) -> Vec<Entry> {
+        list.iter()
+            .map(|&(name, is_dir)| Entry {
+                name: name.into(),
+                size: 0,
+                is_dir,
+                encrypted: false,
+            })
+            .collect()
+    }
+
+    fn top(list: &[(&str, bool)]) -> Option<PathBuf> {
+        single_top_folder(&entries(list))
+    }
+
+    #[test]
+    fn one_folder_is_found() {
+        let found = Some(PathBuf::from("Movie"));
+        // With and without an explicit directory entry, any separator.
+        assert_eq!(top(&[("Movie/", true), ("Movie/a.mkv", false)]), found);
+        assert_eq!(
+            top(&[("Movie/a.mkv", false), ("Movie/b.srt", false)]),
+            found
+        );
+        assert_eq!(top(&[("Movie\\sub\\a.mkv", false)]), found);
+        assert_eq!(top(&[("./Movie/a.mkv", false)]), found);
+    }
+
+    #[test]
+    fn found_name_is_the_sanitised_one() {
+        assert_eq!(top(&[("What?/a.mkv", false)]), Some(PathBuf::from("What_")));
+    }
+
+    #[test]
+    fn anything_else_keeps_the_nesting() {
+        assert_eq!(top(&[]), None);
+        assert_eq!(top(&[("a.mkv", false)]), None); // single file
+        assert_eq!(top(&[("Movie/a.mkv", false), ("b.nfo", false)]), None);
+        assert_eq!(top(&[("A/a.mkv", false), ("B/b.mkv", false)]), None);
+        assert_eq!(top(&[("Movie/a", false), ("movie/b", false)]), None);
+        assert_eq!(top(&[("Empty/", true)]), None); // nothing inside
+    }
+
+    #[test]
+    fn unsafe_names_are_ignored() {
+        // They're skipped at extraction anyway.
+        assert_eq!(
+            top(&[("Movie/a.mkv", false), ("../evil", false)]),
+            Some(PathBuf::from("Movie"))
+        );
+    }
 }

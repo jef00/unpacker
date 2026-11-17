@@ -17,6 +17,10 @@ rest, asks for a password if needed, and unpacks next to the archive.
 Drop any part; the first one is found automatically. Missing parts are
 reported by name: `Part "movie.part3.rar" is missing.`
 
+Files go into a folder named after the archive (`movie.part1.rar` →
+`movie/`). If everything in the archive is already inside one folder, that
+level is skipped: you get `movie/video.mkv`, not `movie/Movie/video.mkv`.
+
 On Windows, a drag-and-drop or double-click launch ends with "Press Enter
 to close…" so you can read the result. Run from cmd, PowerShell or a script,
 it exits straight away (no hanging batch jobs).
@@ -59,7 +63,7 @@ Rules of the road:
 ## Testing
 
 ```sh
-cargo test             # 111 tests
+cargo test             # 120 tests
 cargo test --release   # same suite, optimised (what ships)
 ```
 
@@ -96,4 +100,3 @@ Own code: MIT. RAR support uses RarLab's UnRAR source, which may be used to
 ## Ideas / not done yet
 
 - Progress bar; GUI window instead of a console.
-- If an archive has one top-level folder, skip the extra nesting level.

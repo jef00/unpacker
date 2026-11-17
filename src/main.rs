@@ -99,7 +99,13 @@ fn unpack(set: &VolumeSet) -> Result<()> {
 
 fn try_unpack(set: &VolumeSet, dest: &Path, password: Option<&str>) -> Result<()> {
     let mut extractor = backend::open(set, password)?;
-    extractor.extract(dest, &Options::default(), &mut ConsoleProgress)
+    // `movie.rar` holding just `Movie/…` unpacks to `movie/…`, not
+    // `movie/Movie/…`.
+    let opts = Options {
+        strip_top_folder: backend::single_top_folder(&extractor.list()?),
+        ..Options::default()
+    };
+    extractor.extract(dest, &opts, &mut ConsoleProgress)
 }
 
 /// Reads a password from the console.
