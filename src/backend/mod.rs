@@ -9,12 +9,13 @@ mod output;
 mod rar;
 mod sevenz;
 mod zip;
+mod zip_spanned;
 
 use std::path::Path;
 
 use crate::detect::{self, Format};
 use crate::discovery::VolumeSet;
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
@@ -80,7 +81,15 @@ pub(crate) fn last_part_hint(set: &VolumeSet) -> String {
 
 /// Picks the right backend by looking at the first part's magic bytes.
 pub fn open(set: &VolumeSet, password: Option<&str>) -> Result<Box<dyn Extractor>> {
-    Ok(match detect::from_file(set.first())? {
+    let format = match detect::from_file(set.first()) {
+        // The `.zip` of a spanned set usually starts mid-file, so it has no
+        // magic bytes. Say which part is missing instead of "not an archive".
+        Err(Error::UnknownFormat(_)) if zip_spanned::lone_last_disk(set) => {
+            return Err(Error::MissingVolume(format!("{}.z01", set.base)));
+        }
+        other => other?,
+    };
+    Ok(match format {
         Format::Rar4 | Format::Rar5 => Box::new(rar::RarExtractor::new(set, password)?),
         Format::SevenZ => Box::new(sevenz::SevenZExtractor::new(set, password)?),
         Format::Zip => Box::new(zip::ZipExtractor::new(set, password)?),

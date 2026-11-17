@@ -12,8 +12,7 @@ rest, asks for a password if needed, and unpacks next to the archive.
 |--------|--------|---------------------------------------------------|---------------------------|
 | RAR    | ✅ RAR4/RAR5 | `.part1.rar`… · `.rar`+`.r00`… · `.rar.001`… | ✅ incl. encrypted headers |
 | 7z     | ✅      | `.7z.001`, `.7z.002`, …                           | ✅ incl. encrypted headers |
-| ZIP    | ✅      | `.zip.001`, `.zip.002`, …                         | ✅ AES and ZipCrypto       |
-| ZIP spanned (`.z01`…`.zip`) | detected, clear "not supported" message | — | — |
+| ZIP    | ✅      | `.zip.001`… · spanned `.z01`, `.z02`, …, `.zip`   | ✅ AES and ZipCrypto       |
 
 Drop any part; the first one is found automatically. Missing parts are
 reported by name: `Part "movie.part3.rar" is missing.`
@@ -41,6 +40,7 @@ backend/
   mod.rs         Extractor trait, open(), password contract
   output.rs      plan_entry → TempPath → commit      (the only writer)
   zip.rs         `zip` crate, via MultiReader
+  zip_spanned.rs spanned .z01 sets → rewritten single-disk view (ZIP64-aware)
   sevenz.rs      `sevenz-rust2`, via MultiReader
   rar.rs         `unrar` (UnRAR C++), opens volumes by name
 ```
@@ -55,7 +55,7 @@ Rules of the road:
 ## Testing
 
 ```sh
-cargo test             # 98 tests
+cargo test             # 111 tests
 cargo test --release   # same suite, optimised (what ships)
 ```
 
@@ -91,7 +91,6 @@ Own code: MIT. RAR support uses RarLab's UnRAR source, which may be used to
 
 ## Ideas / not done yet
 
-- Spanned ZIP (`.z01`) extraction (needs offset rewriting).
 - Progress bar; GUI window instead of a console.
 - On Windows, only pause at exit when launched by drag-and-drop.
 - If an archive has one top-level folder, skip the extra nesting level.
