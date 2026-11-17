@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use unrar::error::{Code, UnrarError, When};
 use unrar::{Archive, FileHeader};
 
-use super::output::{EntryInfo, Plan, TempPath, plan_entry};
+use super::output::{EntryInfo, Plan, TempPath, plan_entry, while_watching};
 use super::{Entry, Extractor, Options, Progress};
 use crate::discovery::{Scheme, VolumeSet};
 use crate::error::{Error, Result};
@@ -175,12 +175,12 @@ impl Extractor for RarExtractor {
                 Plan::File(target) => {
                     progress.entry_started(&name, info.size);
                     let temp = TempPath::for_target(&target);
-                    let next = header
-                        .extract_to(temp.path())
-                        .map_err(|e| self.convert(e, encrypted))?;
+                    let (next, reported) =
+                        while_watching(temp.path(), progress, || header.extract_to(temp.path()));
+                    let next = next.map_err(|e| self.convert(e, encrypted))?;
                     if is_regular_file(temp.path()) {
                         temp.commit()?;
-                        progress.bytes_written(info.size);
+                        progress.bytes_written(info.size.saturating_sub(reported));
                     } else {
                         // Safety net: libunrar made a link (or nothing) after
                         // all. Dropping `temp` removes the link itself.

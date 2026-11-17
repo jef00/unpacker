@@ -13,13 +13,16 @@ use unpacker::discovery;
 pub struct Recorder {
     pub started: Vec<String>,
     pub warnings: Vec<String>,
+    pub bytes: u64,
 }
 
 impl Progress for Recorder {
     fn entry_started(&mut self, name: &str, _size: u64) {
         self.started.push(name.into());
     }
-    fn bytes_written(&mut self, _bytes: u64) {}
+    fn bytes_written(&mut self, bytes: u64) {
+        self.bytes += bytes;
+    }
     fn warning(&mut self, message: &str) {
         self.warnings.push(message.into());
     }

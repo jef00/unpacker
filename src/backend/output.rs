@@ -13,6 +13,9 @@
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::Duration;
 
 use super::{Options, Overwrite, Progress};
 use crate::error::{Error, Result};
@@ -53,6 +56,20 @@ pub(crate) fn plan_entry(
         }
         Err(e) => return Err(e),
     };
+    let relative = match &opts.strip_prefix {
+        Some(prefix) => {
+            // A stripped folder's own entry (or a parent's): that's `dest` now.
+            if entry.is_dir && prefix.starts_with(&relative) {
+                fs::create_dir_all(dest)?;
+                return Ok(Plan::Directory);
+            }
+            match relative.strip_prefix(prefix) {
+                Ok(rest) if !rest.as_os_str().is_empty() => rest.to_path_buf(),
+                _ => relative,
+            }
+        }
+        None => relative,
+    };
     let target = dest.join(relative);
 
     if entry.is_dir {
@@ -60,7 +77,7 @@ pub(crate) fn plan_entry(
         return Ok(Plan::Directory);
     }
     if target.exists() && opts.overwrite == Overwrite::Skip {
-        progress.warning(&format!("Skipped \"{}\": file already exists.", entry.name));
+        progress.skipped_existing(entry.name);
         return Ok(Plan::Skip);
     }
     if let Some(parent) = target.parent() {
@@ -122,6 +139,43 @@ fn read_error(e: io::Error) -> Error {
         }
         _ => Error::Corrupt(e.to_string()),
     }
+}
+
+/// How often [`while_watching`] looks at the file size.
+const WATCH_INTERVAL: Duration = Duration::from_millis(200);
+
+/// Runs `work` (which writes `path`) and meanwhile reports the file's growth
+/// as progress. For libraries that write files themselves (libunrar) and
+/// would otherwise leave the progress bar stuck until a 10 GB file is done.
+///
+/// Returns `work`'s result and how many bytes were reported, so the caller
+/// can report the rest once the file is complete.
+pub(crate) fn while_watching<T>(
+    path: &Path,
+    progress: &mut dyn Progress,
+    work: impl FnOnce() -> T,
+) -> (T, u64) {
+    let done = AtomicBool::new(false);
+    thread::scope(|scope| {
+        let watcher = scope.spawn(|| {
+            let mut reported = 0;
+            while !done.load(Ordering::Acquire) {
+                thread::park_timeout(WATCH_INTERVAL);
+                if let Ok(len) = fs::metadata(path).map(|m| m.len())
+                    && len > reported
+                {
+                    progress.bytes_written(len - reported);
+                    reported = len;
+                }
+            }
+            reported
+        });
+        let result = work();
+        done.store(true, Ordering::Release);
+        watcher.thread().unpark();
+        // The watcher can't panic (no unwrap, no indexing); 0 is a safe fallback.
+        (result, watcher.join().unwrap_or(0))
+    })
 }
 
 /// A `<target>.unpacker-tmp` path that is deleted on drop unless
@@ -284,6 +338,7 @@ mod tests {
         fs::write(dir.path().join("x.txt"), "mine").unwrap();
         let opts = Options {
             overwrite: Overwrite::Replace,
+            ..Options::default()
         };
         write_entry(
             dir.path(),
@@ -362,6 +417,85 @@ mod tests {
             plan_entry(dir.path(), &file("a/c.txt"), &opts, &mut p).unwrap(),
             Plan::File(dir.path().join("a").join("c.txt"))
         );
+    }
+
+    #[test]
+    fn strips_the_top_folder_when_asked() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("out");
+        let mut p = Recorder::default();
+        let opts = Options {
+            strip_prefix: Some(PathBuf::from("Movie")),
+            ..Options::default()
+        };
+        let top = EntryInfo {
+            name: "Movie/",
+            size: 0,
+            is_dir: true,
+        };
+        assert_eq!(
+            plan_entry(&dest, &top, &opts, &mut p).unwrap(),
+            Plan::Directory
+        );
+        assert!(dest.is_dir());
+        assert_eq!(
+            plan_entry(&dest, &file("Movie\\subs/nl.srt"), &opts, &mut p).unwrap(),
+            Plan::File(dest.join("subs").join("nl.srt"))
+        );
+        // Only whole components match: "MovieX" is not inside "Movie".
+        assert_eq!(
+            plan_entry(&dest, &file("MovieX/a.txt"), &opts, &mut p).unwrap(),
+            Plan::File(dest.join("MovieX").join("a.txt"))
+        );
+        assert!(p.warnings.is_empty());
+    }
+
+    #[test]
+    fn strips_several_levels_for_a_single_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = Recorder::default();
+        let opts = Options {
+            strip_prefix: Some(PathBuf::from("A/B")),
+            ..Options::default()
+        };
+        for parent in ["A/", "A/B/"] {
+            let d = EntryInfo {
+                name: parent,
+                size: 0,
+                is_dir: true,
+            };
+            assert_eq!(
+                plan_entry(dir.path(), &d, &opts, &mut p).unwrap(),
+                Plan::Directory
+            );
+        }
+        assert!(!dir.path().join("A").exists());
+        assert_eq!(
+            plan_entry(dir.path(), &file("A/B/a.mkv"), &opts, &mut p).unwrap(),
+            Plan::File(dir.path().join("a.mkv"))
+        );
+    }
+
+    #[test]
+    fn watching_reports_growth_while_working() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("growing.bin");
+        let mut p = Recorder::default();
+        let (result, reported) = while_watching(&path, &mut p, || {
+            for _ in 0..3 {
+                let mut f = fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                    .unwrap();
+                f.write_all(&[0; 1000]).unwrap();
+                thread::sleep(WATCH_INTERVAL * 2);
+            }
+            "done"
+        });
+        assert_eq!(result, "done");
+        assert!(reported > 0 && reported <= 3000, "{reported}");
+        assert_eq!(p.bytes, reported);
     }
 
     #[test]

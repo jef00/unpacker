@@ -18,7 +18,7 @@
 //! are missing (part 5 of 5 vs. part 5 of 7). The backend detects that when
 //! it runs off the end of the last volume.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::iter;
 use std::path::{Path, PathBuf};
 
@@ -180,6 +180,35 @@ pub fn discover(dropped: &Path, siblings: &[PathBuf]) -> Result<VolumeSet> {
         base: base.to_string(),
         parts,
     })
+}
+
+/// Picks one file per archive among `files` (a directory listing), so a
+/// folder can be unpacked without dropping anything onto the program.
+///
+/// Anything that isn't named like an archive or an archive part is left out
+/// (videos, our own `.unpacker-tmp` files, the program itself). Pass each
+/// result to [`discover_on_disk`] to get the full set, or the error saying
+/// which part is missing. The result is sorted, so archives are unpacked in
+/// a predictable order.
+pub fn archives_among(files: &[PathBuf]) -> Vec<PathBuf> {
+    let mut sorted: Vec<&PathBuf> = files.iter().collect();
+    sorted.sort();
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for path in sorted {
+        let Some(name) = file_name(path) else {
+            continue;
+        };
+        let key = match classify(name) {
+            Some(piece) => format!("{:?}/{}", piece.kind, piece.base.to_lowercase()),
+            None if is_archive_name(name) => name.to_lowercase(),
+            None => continue,
+        };
+        if seen.insert(key) {
+            out.push(path.clone());
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -418,6 +447,48 @@ mod tests {
         match result {
             Err(Error::MissingVolume(name)) => name,
             other => panic!("expected MissingVolume, got {other:?}"),
+        }
+    }
+
+    // --- finding archives in a folder ----------------------------------------
+
+    #[test]
+    fn archives_among_picks_one_file_per_archive() {
+        let found = archives_among(&files(&[
+            "b.part2.rar",
+            "b.part1.rar",
+            "movie.mkv",
+            "c.7z",
+            "a.zip.002",
+            "a.zip.001",
+            "old.r00",
+            "old.rar",
+            "span.z01",
+            "span.zip",
+            "unpacker.exe",
+            "x.mkv.unpacker-tmp",
+            "video.mkv.001",
+        ]));
+        let found: Vec<String> = found.iter().map(|p| display_name(p)).collect();
+        assert_eq!(
+            found,
+            ["a.zip.001", "b.part1.rar", "c.7z", "old.r00", "span.z01"]
+        );
+    }
+
+    #[test]
+    fn archives_among_each_finds_the_whole_set() {
+        let dir = [
+            "b.part1.rar",
+            "b.part2.rar",
+            "old.rar",
+            "old.r00",
+            "span.zip",
+            "span.z01",
+        ];
+        for picked in archives_among(&files(&dir)) {
+            let set = discover(&picked, &files(&dir)).unwrap();
+            assert_eq!(set.parts.len(), 2, "{set:?}");
         }
     }
 

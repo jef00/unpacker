@@ -6,6 +6,7 @@
 
 use std::fs;
 use std::io::{Cursor, Write};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use tempfile::TempDir;
@@ -465,8 +466,46 @@ fn binary_prompts_for_password_and_retries() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(stdout.contains("Wrong password"), "{stdout}");
-    assert_eq!(
-        read(tmp.path().join("Show.S01E01/episode.mkv")),
-        "video bytes"
-    );
+    // A single file lands straight next to the archive.
+    assert_eq!(read(tmp.path().join("episode.mkv")), "video bytes");
+    assert!(!tmp.path().join("Show.S01E01").exists());
+}
+
+fn run_binary(archive: &Path) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_unpacker"))
+        .arg(archive)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(output.status.success(), "{stdout}");
+    stdout
+}
+
+#[test]
+fn binary_puts_a_single_file_in_folders_next_to_the_archive() {
+    let tmp = TempDir::new().unwrap();
+    let zip = build_zip(&[
+        Item::Dir("Show/"),
+        Item::Dir("Show/S01/"),
+        Item::File("Show/S01/episode.mkv", b"video"),
+    ]);
+    let archive = write(tmp.path(), "show.zip", &zip);
+
+    let stdout = run_binary(&archive);
+    assert_eq!(read(tmp.path().join("episode.mkv")), "video");
+    assert!(!tmp.path().join("show").exists());
+    assert!(!tmp.path().join("Show").exists());
+    assert!(stdout.contains("episode.mkv"), "{stdout}");
+}
+
+#[test]
+fn binary_never_overwrites_a_file_next_to_the_archive() {
+    let tmp = TempDir::new().unwrap();
+    write(tmp.path(), "episode.mkv", b"mine");
+    let zip = build_zip(&[Item::File("episode.mkv", b"video")]);
+    let archive = write(tmp.path(), "show.zip", &zip);
+
+    run_binary(&archive);
+    assert_eq!(read(tmp.path().join("episode.mkv")), "mine");
 }

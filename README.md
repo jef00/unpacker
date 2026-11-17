@@ -6,6 +6,26 @@ Made for people who download multi-part video archives (e.g. from Telegram)
 and just want the video: drag *any* part onto the program, and it finds the
 rest, asks for a password if needed, and unpacks next to the archive.
 
+Or don't drag anything: put the program next to the archives and
+double-click it. It unpacks every archive in its own folder. (From a
+terminal, `unpacker` with no arguments uses the folder you're in.)
+
+While it works you see a progress bar with speed and time left. When every
+file came out fine, it asks `Delete the 12 archive files permanently? [Y/n]`;
+Enter means yes. Deleting is **permanent** (no Recycle Bin / Trash), so
+answer `n` if you want to keep them. If anything was skipped, the archives
+are always kept and you aren't asked. Without a console to answer on,
+they're kept too.
+
+For scripts: `--delete` deletes the archive files permanently without
+asking; `--keep` keeps them. `--help` lists all
+options; an unknown option (say, a typo like `--delet`) stops with an error
+instead of being taken for a file name.
+
+The last line per archive says what really happened: `✓ Extracted to …`,
+with the number of skipped files if any, or `• Nothing extracted` when
+everything was skipped (for example because it was already there).
+
 ## What it handles
 
 | Format | Single | Multi-part                                        | Passwords                 |
@@ -16,6 +36,16 @@ rest, asks for a password if needed, and unpacks next to the archive.
 
 Drop any part; the first one is found automatically. Missing parts are
 reported by name: `Part "movie.part3.rar" is missing.`
+
+No pointless folders:
+
+- **One file** in the archive (even inside folders): it goes straight next
+  to the archive. `movie.part1.rar` → `movie.mkv`.
+- **One folder** holding everything: you get `movie/…`, not `movie/Movie/…`.
+- **Anything else**: a folder named after the archive, `movie/`, with the
+  archive's own structure inside.
+
+An existing file is never overwritten, also not next to the archive.
 
 On Windows, a drag-and-drop or double-click launch ends with "Press Enter
 to close…" so you can read the result. Run from cmd, PowerShell or a script,
@@ -59,7 +89,7 @@ Rules of the road:
 ## Testing
 
 ```sh
-cargo test             # 114 tests
+cargo test             # 145 tests
 cargo test --release   # same suite, optimised (what ships)
 ```
 
@@ -95,5 +125,4 @@ Own code: MIT. RAR support uses RarLab's UnRAR source, which may be used to
 
 ## Ideas / not done yet
 
-- Progress bar; GUI window instead of a console.
-- If an archive has one top-level folder, skip the extra nesting level.
+- GUI window instead of a console.

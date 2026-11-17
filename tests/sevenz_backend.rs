@@ -276,5 +276,10 @@ fn binary_unpacks_real_split_next_to_it() {
         1,
         "unpacked once:\n{stdout}"
     );
-    assert_files(&tmp.path().join("archive"), SZIP_FILES);
+    // Everything sits in `mingw64/`, so that level is skipped.
+    let unnested: Vec<(&str, u32)> = SZIP_FILES
+        .iter()
+        .map(|&(name, crc)| (name.strip_prefix("mingw64/").unwrap(), crc))
+        .collect();
+    assert_files(&tmp.path().join("archive"), &unnested);
 }
