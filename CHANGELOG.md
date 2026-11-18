@@ -3,6 +3,19 @@
 The release workflow publishes the section matching the pushed tag as the
 release notes, so keep one `## [x.y.z]` heading per version.
 
+## [0.1.1] - 2026-11-18
+
+### Fixed
+
+- **Progress bar for RAR archives on Windows.** For large files it jumped
+  to 100% straight away ("0s left") and then sat there until the file was
+  done, because Windows reserves a file's full size before it's written.
+  It now follows the data actually unpacked, so speed and time left are
+  real.
+
+Same downloads as before: `unpacker-windows-x64.exe`, `unpacker-macos-arm64`,
+`unpacker-linux-x64`.
+
 ## [0.1.0] - 2026-11-18
 
 First release. Drag any part of an archive onto the program and get your
