@@ -375,6 +375,7 @@ fn unrar_counts_every_byte_it_writes() {
         "rar/rar5-vols.part2.rar",
         "rar/rar5-vols.part3.rar",
     ]);
+    let _unrar = unpacker::backend::unrar_lock();
     let mut cursor = unrar::Archive::new(&tmp.path().join("rar5-vols.part1.rar"))
         .open_for_processing()
         .unwrap();

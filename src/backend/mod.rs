@@ -12,6 +12,8 @@ mod tar;
 mod zip;
 mod zip_spanned;
 
+pub use rar::unrar_lock;
+
 use std::path::{Component, Path, PathBuf};
 
 use crate::detect::{self, Format};

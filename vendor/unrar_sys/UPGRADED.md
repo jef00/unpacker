@@ -36,6 +36,15 @@ unrar_sys keeps four patches (`vendor/patches.txt`, commits in muja/unrar.rs):
 be `Reserved`, which the Rust bindings already zero. NULL means "don't copy
 Mark of the Web", which is the old behaviour, so `src/lib.rs` is unchanged.
 
+## Behaviour change: one archive at a time
+
+In 7.2x, `RARReadHeaderEx` and `RARProcessFile` also return UnRAR's global
+error state (`ErrHandler`), which only `RAROpenArchiveEx` resets. Two archives
+open in different threads would see each other's errors. The program only
+unpacks one archive at a time anyway, but `backend::unrar_lock()` now makes
+that a rule: the RAR backend holds it from open to close. Tests running in
+parallel need it too. Without it, about 1 in 20 runs failed on a 2-CPU machine.
+
 ## Upgrading again
 
 Replace `vendor/unrar/` with a newer unrarsrc and redo the `dll.cpp` and

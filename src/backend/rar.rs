@@ -16,8 +16,8 @@
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use unrar::error::{Code, UnrarError, When};
 use unrar::{Archive, FileHeader};
@@ -27,6 +27,18 @@ use super::{Entry, Extractor, Options, Progress};
 use crate::discovery::{Scheme, VolumeSet};
 use crate::error::{Error, Result};
 use crate::multi_reader::MultiReader;
+
+/// UnRAR keeps its error state in one process-wide object (`ErrHandler`),
+/// which only opening an archive resets. Since UnRAR 7.2x every header read
+/// and extract also returns that shared state, so two archives open at once
+/// see each other's errors. Only one may be open at a time.
+static UNRAR: Mutex<()> = Mutex::new(());
+
+/// Exclusive use of UnRAR. Hold it from opening an archive until it's dropped.
+/// The mutex guards no data, so a poisoned lock is still safe to take.
+pub fn unrar_lock() -> MutexGuard<'static, ()> {
+    UNRAR.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 pub struct RarExtractor {
     /// What libunrar opens: the first volume, or the joined copy of a split.
@@ -56,6 +68,7 @@ impl RarExtractor {
         // Read the first header now, so format and header-password problems
         // surface from `backend::open()` like they do for the other backends.
         // (With encrypted headers, opening succeeds; reading is what fails.)
+        let _unrar = unrar_lock();
         extractor
             .archive()
             .open_for_listing()
@@ -74,6 +87,7 @@ impl RarExtractor {
     }
 
     fn headers(&self) -> Result<Vec<FileHeader>> {
+        let _unrar = unrar_lock();
         let listing = self
             .archive()
             .open_for_listing()
@@ -147,6 +161,7 @@ impl Extractor for RarExtractor {
             return Err(Error::PasswordRequired);
         }
 
+        let _unrar = unrar_lock();
         let mut cursor = self
             .archive()
             .open_for_processing()
