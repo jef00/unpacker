@@ -13,6 +13,12 @@ release notes, so keep one `## [x.y.z]` heading per version.
   It now follows the data actually unpacked, so speed and time left are
   real.
 
+### Changed
+
+- **RAR engine updated to UnRAR 7.23** (was 7.01 from 2024), the same
+  version as WinRAR 7.23. It brings two years of RARLAB fixes, including
+  the 2025 security fixes for crafted archives.
+
 Same downloads as before: `unpacker-windows-x64.exe`, `unpacker-macos-arm64`,
 `unpacker-linux-x64`.
 

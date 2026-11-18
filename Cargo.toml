@@ -68,3 +68,6 @@ strip = true
 # upstream.
 [patch.crates-io]
 unrar = { path = "vendor/unrar" }
+# unrar_sys 0.5.8 bundles UnRAR 7.01 (2024). Our copy carries UnRAR 7.23.
+# See vendor/unrar_sys/UPGRADED.md.
+unrar_sys = { path = "vendor/unrar_sys" }

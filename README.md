@@ -147,11 +147,16 @@ CI uploads each binary as a plain file, no zip: `unpacker-windows-x64.exe`,
 `unpacker-macos-arm64` and `unpacker-linux-x64`. (On macOS and Linux, run
 `chmod +x` on it after downloading.)
 
-### Vendored dependency
+### Vendored dependencies
 
-`vendor/unrar` is `unrar` 0.5.8 with a one-line fix for a buffer over-read
-in its volume-change callback (undefined behaviour on every multi-volume
-RAR). Details and removal instructions: `vendor/unrar/PATCHED.md`.
+`vendor/unrar` is `unrar` 0.5.8 with two small changes: a fix for a buffer
+over-read in its volume-change callback (undefined behaviour on every
+multi-volume RAR), and byte counting for the progress bar. Details:
+`vendor/unrar/PATCHED.md`.
+
+`vendor/unrar_sys` is `unrar_sys` 0.5.8 with the bundled UnRAR C++ source
+upgraded from 7.01 to 7.23. What changed and how to upgrade again:
+`vendor/unrar_sys/UPGRADED.md`.
 
 `build.rs` links `advapi32` on Windows, which `unrar_sys` 0.5.8 forgets
 (it relied on Rust's std, which no longer links it). See the comment there.
