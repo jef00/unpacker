@@ -200,7 +200,7 @@ impl Extractor for RarExtractor {
                     });
                     let next = next.map_err(|e| self.convert(e, encrypted))?;
                     if is_regular_file(temp.path()) {
-                        temp.commit()?;
+                        temp.commit(opts)?;
                         progress.bytes_written(info.size.saturating_sub(reported));
                     } else {
                         // Safety net: libunrar made a link (or nothing) after

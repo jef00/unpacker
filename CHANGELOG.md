@@ -3,6 +3,17 @@
 The release workflow publishes the section matching the pushed tag as the
 release notes, so keep one `## [x.y.z]` heading per version.
 
+## [Unreleased]
+
+### Added
+
+- **Windows' "downloaded from the internet" warning is kept.** Files
+  unpacked from a downloaded archive now get the archive's Mark of the Web,
+  like WinRAR and 7-Zip do. A fake `movie.mkv.exe` gets the SmartScreen
+  warning before it runs, and Word/Excel files open in Protected View.
+  On macOS the quarantine tag is copied the same way. Videos play exactly
+  as before.
+
 ## [0.1.1] - 2026-11-18
 
 ### Fixed

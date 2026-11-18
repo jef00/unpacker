@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use indicatif::{ProgressBar, ProgressStyle};
 use unpacker::backend::{self, Layout, Options, Progress};
+use unpacker::origin::Origin;
 use unpacker::{Error, Result, VolumeSet, discovery};
 
 /// What to do with the archive files after a fully successful unpack.
@@ -386,6 +387,7 @@ fn try_unpack(set: &VolumeSet, password: Option<&str>, tally: &mut Tally) -> Res
     };
     let opts = Options {
         strip_prefix,
+        origin: Origin::of(&set.parts),
         ..Options::default()
     };
     let total = entries.iter().filter(|e| !e.is_dir).map(|e| e.size).sum();

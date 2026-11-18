@@ -84,6 +84,10 @@ it exits straight away (no hanging batch jobs).
 - **Never leaves a half-written file.** Data goes to `*.unpacker-tmp` and
   is renamed only after it's complete and checksum-verified.
 - **Never overwrites your files** unless asked (`Overwrite::Replace`).
+- **Keeps Windows' download warning.** Files from a downloaded archive get
+  its Mark of the Web (macOS: quarantine tag), like WinRAR and 7-Zip do.
+  A fake `movie.mkv.exe` still triggers SmartScreen, and Office documents
+  open in Protected View.
 - **Retrying with another password is always safe.** See the password
   contract on `Extractor::extract` for exactly when each error can occur.
 
@@ -95,6 +99,7 @@ discovery.rs     filenames → VolumeSet               (pure, heavily tested)
 detect.rs        magic bytes → Format
 multi_reader.rs  many files → one Read + Seek        (splits)
 safety.rs        untrusted entry name → safe relative path
+origin.rs        Mark of the Web / quarantine tag, copied to unpacked files
 backend/
   mod.rs         Extractor trait, open(), password contract
   output.rs      plan_entry → TempPath → commit      (the only writer)
@@ -115,7 +120,7 @@ Rules of the road:
 ## Testing
 
 ```sh
-cargo test             # 160 tests
+cargo test             # 162 tests on Linux, a few more on Windows/macOS
 cargo test --release   # same suite, optimised (what ships)
 ```
 

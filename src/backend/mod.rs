@@ -19,6 +19,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::detect::{self, Format};
 use crate::discovery::VolumeSet;
 use crate::error::{Error, Result};
+use crate::origin::Origin;
 use crate::safety::sanitize_entry_path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +49,9 @@ pub struct Options {
     /// their parents) become `dest` itself; entries outside them are written
     /// unchanged.
     pub strip_prefix: Option<PathBuf>,
+    /// The archive's "from the internet" tag, copied onto every file written.
+    /// See [`crate::origin`].
+    pub origin: Option<Origin>,
 }
 
 /// How an archive's contents are arranged, so the UI can avoid pointless

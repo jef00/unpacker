@@ -6,6 +6,8 @@
 //! 3. Data goes to `<name>.unpacker-tmp` and is renamed into place only once
 //!    it's complete and verified, so a crash or a CRC error never leaves a
 //!    half-written file that looks finished.
+//! 4. A file from a downloaded archive gets the archive's "from the internet"
+//!    tag before it's renamed into place, so it never appears untagged.
 //!
 //! Streaming backends (ZIP, 7z) call [`write_entry`]. Backends whose library
 //! writes files itself (RAR) use [`plan_entry`] + [`TempPath`] directly.
@@ -103,7 +105,7 @@ pub(crate) fn write_entry(
     copy_with_progress(data, &file, progress)?;
     // Close before renaming: Windows refuses to rename a file that's open.
     drop(file);
-    temp.commit()
+    temp.commit(opts)
 }
 
 /// Like `io::copy`, but tells read errors (a damaged archive) apart from
@@ -207,7 +209,14 @@ impl TempPath {
         &self.temp_path
     }
 
-    pub(crate) fn commit(mut self) -> Result<()> {
+    /// Tags the file (see [`Options::origin`]) and renames it into place.
+    pub(crate) fn commit(mut self, opts: &Options) -> Result<()> {
+        if let Some(origin) = &opts.origin {
+            // Best effort: this only fails where the disk can't hold tags at
+            // all (FAT32/exFAT), and then the archive beside it can't carry
+            // one either. Not worth losing a finished file over.
+            let _ = origin.apply(&self.temp_path);
+        }
         // `fs::rename` replaces an existing target on Windows too.
         fs::rename(&self.temp_path, &self.final_path)?;
         self.committed = true;
@@ -392,7 +401,7 @@ mod tests {
 
         let temp = TempPath::for_target(&target);
         fs::write(temp.path(), "done").unwrap();
-        temp.commit().unwrap();
+        temp.commit(&Options::default()).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "done");
         assert!(leftovers(dir.path()).is_empty());
     }

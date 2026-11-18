@@ -42,6 +42,10 @@ zstd = { version = "0.14", default-features = false }
 # GetConsoleProcessList: pause at exit only for drag-and-drop launches.
 windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Copy the archive's quarantine tag onto unpacked files (src/origin.rs).
+xattr = "1"
+
 [dev-dependencies]
 tempfile = "3"
 # Full zip crate (incl. writer + compressors) to build test archives.

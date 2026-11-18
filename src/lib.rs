@@ -8,6 +8,7 @@ pub mod detect;
 pub mod discovery;
 pub mod error;
 pub mod multi_reader;
+pub mod origin;
 pub mod safety;
 
 pub use discovery::{Scheme, VolumeSet};
