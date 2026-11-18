@@ -3,7 +3,7 @@
 The release workflow publishes the section matching the pushed tag as the
 release notes, so keep one `## [x.y.z]` heading per version.
 
-## [Unreleased]
+## [0.1.2] - 2026-11-18
 
 ### Added
 

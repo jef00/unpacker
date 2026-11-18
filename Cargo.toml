@@ -1,6 +1,6 @@
 [package]
 name = "unpacker"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.93"
 description = "Drop archive parts on it, get your files out. RAR, 7z, ZIP, tar and all volume styles."
