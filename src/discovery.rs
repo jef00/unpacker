@@ -83,9 +83,23 @@ impl VolumeSet {
             // `movie.7z` (from `movie.7z.001`), `movie.tar.gz` → `movie`.
             Scheme::Split => without_archive_suffix(&self.base),
             // `base` already lost one extension: `movie.tar.gz` → `movie.tar`.
-            Scheme::Single => strip_suffix_ci(&self.base, ".tar")
-                .filter(|stem| !stem.is_empty())
-                .unwrap_or(&self.base),
+            // Telegram may have cut that `.tar` short: `movie.ta.gz`.
+            Scheme::Single => {
+                let compressed = self
+                    .parts
+                    .first()
+                    .and_then(|p| file_name(p))
+                    .is_some_and(has_tar_compression);
+                let tar: &[&str] = if compressed {
+                    &[".tar", ".ta", ".t"]
+                } else {
+                    &[".tar"]
+                };
+                tar.iter()
+                    .find_map(|suffix| strip_suffix_ci(&self.base, suffix))
+                    .filter(|stem| !stem.is_empty())
+                    .unwrap_or(&self.base)
+            }
             _ => &self.base,
         }
     }
@@ -104,7 +118,68 @@ pub fn discover_on_disk(dropped: &Path) -> Result<VolumeSet> {
             siblings.push(path);
         }
     }
-    discover(dropped, &siblings)
+    let set = discover(dropped, &siblings)?;
+    // `Title.001`: Telegram may have cut the `.7z` out of `Title.7z.001`.
+    // If the first part's content is an archive, it's a split after all.
+    if set.scheme == Scheme::Single
+        && let Some(stem) = split_stem_by_content(dropped, &siblings)
+    {
+        return discover_with(dropped, &siblings, Some(&stem));
+    }
+    Ok(set)
+}
+
+/// For `x.NNN` whose `x.001` sibling (or itself) starts with an archive
+/// signature: the stem `x`. A raw split video (`movie.mkv.001`) isn't an
+/// archive inside, so it stays a single, unsupported file.
+fn split_stem_by_content(dropped: &Path, siblings: &[PathBuf]) -> Option<String> {
+    let (stem, ext) = file_name(dropped)?.rsplit_once('.')?;
+    parse_number(ext).filter(|&n| n >= 1 && ext.len() >= 3)?;
+    let first = siblings
+        .iter()
+        .map(PathBuf::as_path)
+        .chain(iter::once(dropped))
+        .find(|p| {
+            file_name(p)
+                .and_then(|n| n.rsplit_once('.'))
+                .is_some_and(|(s, e)| {
+                    s.eq_ignore_ascii_case(stem) && e.len() >= 3 && parse_number(e) == Some(1)
+                })
+        })?;
+    crate::detect::from_file(first)
+        .ok()
+        .map(|_| stem.to_string())
+}
+
+/// [`archives_among`], plus archives Telegram's name cutting hid, found by
+/// content. Reads the start of those files:
+///
+/// - `.001` splits whose `.7z`/`.zip`/… was cut (see [`discover_on_disk`]);
+/// - compressed tars whose `.tar` was cut: `Title.tar.gz` → `Title.ta.gz`
+///   or `Title.gz`. A `.gz` of anything else (`notes.txt.gz`) isn't one.
+pub fn archives_among_on_disk(files: &[PathBuf]) -> Vec<PathBuf> {
+    let mut out = archives_among(files);
+    for path in files {
+        let Some(name) = file_name(path) else {
+            continue;
+        };
+        if out.contains(path) {
+            continue;
+        }
+        let is_first_split = name.rsplit_once('.').is_some_and(|(stem, ext)| {
+            !stem.is_empty() && ext.len() >= 3 && parse_number(ext) == Some(1)
+        });
+        let found = if is_first_split {
+            classify(name).is_none() && crate::detect::from_file(path).is_ok()
+        } else {
+            has_tar_compression(name) && crate::backend::holds_tar(path)
+        };
+        if found {
+            out.push(path.clone());
+        }
+    }
+    out.sort();
+    out
 }
 
 /// Works out the full volume set for `dropped`.
@@ -112,7 +187,17 @@ pub fn discover_on_disk(dropped: &Path) -> Result<VolumeSet> {
 /// `siblings` is every file in the same directory; it may or may not contain
 /// `dropped` itself. No filesystem access happens here.
 pub fn discover(dropped: &Path, siblings: &[PathBuf]) -> Result<VolumeSet> {
-    let Some(me) = file_name(dropped).and_then(classify) else {
+    discover_with(dropped, siblings, None)
+}
+
+/// [`discover`], also treating `<split_stem>.NNN` as a split even without an
+/// archive extension inside (the content was checked by the caller).
+fn discover_with(
+    dropped: &Path,
+    siblings: &[PathBuf],
+    split_stem: Option<&str>,
+) -> Result<VolumeSet> {
+    let Some(me) = file_name(dropped).and_then(|n| classify_with(n, split_stem)) else {
         return Ok(single(dropped));
     };
 
@@ -131,7 +216,7 @@ pub fn discover(dropped: &Path, siblings: &[PathBuf]) -> Result<VolumeSet> {
         .map(PathBuf::as_path)
         .chain(iter::once(dropped));
     for path in candidates {
-        let Some(piece) = file_name(path).and_then(classify) else {
+        let Some(piece) = file_name(path).and_then(|n| classify_with(n, split_stem)) else {
             continue;
         };
         if piece.kind != me.kind || !same_name(piece.base, me.base) {
@@ -253,6 +338,11 @@ struct Piece<'a> {
 }
 
 fn classify(name: &str) -> Option<Piece<'_>> {
+    classify_with(name, None)
+}
+
+/// `split_stem`: a stem known (from content) to be a split archive.
+fn classify_with<'a>(name: &'a str, split_stem: Option<&str>) -> Option<Piece<'a>> {
     let (stem, ext) = name.rsplit_once('.')?;
     if stem.is_empty() {
         return None;
@@ -316,7 +406,7 @@ fn classify(name: &str) -> Option<Piece<'_>> {
     // `.001`, `.002`, … — byte split of an archive (`x.7z.001`). Splits of
     // anything else, like a raw `movie.mkv.001`, are deliberately not sets.
     if ext.len() >= 3
-        && is_archive_name(stem)
+        && (is_archive_name(stem) || split_stem.is_some_and(|s| s.eq_ignore_ascii_case(stem)))
         && let Some(n) = parse_number(ext).filter(|&n| n >= 1)
     {
         return numbered(Kind::Split, stem, n, ext);
@@ -359,12 +449,12 @@ fn ensure_same_file(existing: &Path, candidate: &Path) -> Result<()> {
     ))
 }
 
-fn rar_old_name(base: &str, index: u32) -> String {
+pub(crate) fn rar_old_name(base: &str, index: u32) -> String {
     let letter = char::from_u32('r' as u32 + index / 100).unwrap_or('?');
     format!("{base}.{letter}{:02}", index % 100)
 }
 
-fn single(path: &Path) -> VolumeSet {
+pub(crate) fn single(path: &Path) -> VolumeSet {
     let name = file_name(path).unwrap_or_default();
     let base = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
     VolumeSet {
@@ -398,6 +488,13 @@ const ARCHIVE_EXTENSIONS: [&str; 9] = [
 /// Compressions that make an archive only around a tar: `x.tar.gz` is one,
 /// a lone `notes.txt.gz` or `syslog.xz` isn't.
 const TAR_COMPRESSIONS: [&str; 4] = ["gz", "bz2", "xz", "zst"];
+
+/// `x.gz`, `x.tar.xz`, `x.zst`, …: a compression tar archives use.
+fn has_tar_compression(name: &str) -> bool {
+    name.rsplit_once('.').is_some_and(|(stem, ext)| {
+        !stem.is_empty() && TAR_COMPRESSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e))
+    })
+}
 
 /// `movie.7z`, `movie.tar.gz` → true; `movie.mkv`, `log.gz`, `movie` → false.
 fn is_archive_name(name: &str) -> bool {
@@ -435,7 +532,7 @@ fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
         .then(|| &s[prefix.len()..])
 }
 
-fn strip_suffix_ci<'a>(s: &'a str, suffix: &str) -> Option<&'a str> {
+pub(crate) fn strip_suffix_ci<'a>(s: &'a str, suffix: &str) -> Option<&'a str> {
     let split = s.len().checked_sub(suffix.len())?;
     let tail = s.get(split..)?;
     tail.eq_ignore_ascii_case(suffix).then(|| &s[..split])

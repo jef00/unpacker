@@ -62,6 +62,29 @@ alone.
 Drop any part; the first one is found automatically. Missing parts are
 reported by name: `Part "movie.part3.rar" is missing.`
 
+**Names Telegram shortened.** Telegram keeps the extension and cuts a long
+name before it, so part of the archive type can disappear: `Title.7z.001`
+arrives as `Title.001`, `Title.tar.gz` as `Title.ta.gz` or `Title.gz`. Those
+are recognised by their contents (a `.gz` with a tar inside is a tar,
+whatever it's called), and the output folder is still called `Title`.
+
+**RAR part numbers Telegram cut.** The same cut removes `.part01` from
+`Title.part01.rar`: every part arrives as `Title.rar`, `Title (1).rar`,
+`Title (2).rar` (in download order). The program reads each RAR volume's real number from inside the file and renames
+the parts back to `Title.part01.rar`, … before unpacking. No name is
+trusted:
+
+- Which part a file is comes from its headers. Which *archive* it belongs
+  to comes from its contents: the file cut between two parts is named in
+  both, so neighbours must agree. Two archives with the same shortened title
+  (1080p and 720p, say) are told apart and become `Title` and `Title (2)`.
+- A part that's still downloading keeps its name until it's complete.
+- Renaming is all or nothing, never overwrites anything, and a rename cut
+  short by a crash is finished on the next run.
+- Correctly named sets are never touched, a part downloaded twice is
+  recognised, and a missing part is reported as "Part 2 of 3 is missing".
+- When in doubt, nothing is renamed and you're told why.
+
 No pointless folders:
 
 - **One file** in the archive (even inside folders): it goes straight next
@@ -120,7 +143,7 @@ Rules of the road:
 ## Testing
 
 ```sh
-cargo test             # 162 tests on Linux, a few more on Windows/macOS
+cargo test             # 203 tests on Linux, a few more on Windows/macOS
 cargo test --release   # same suite, optimised (what ships)
 ```
 

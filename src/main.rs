@@ -119,7 +119,7 @@ fn main() -> ExitCode {
     let files = if args.files.is_empty() {
         archives_nearby()
     } else {
-        args.files
+        restore_volume_names(&args.files)
     };
     let code = if files.is_empty() {
         println!("No archives found. Put this program next to the archive files and");
@@ -145,13 +145,57 @@ fn archives_nearby() -> Vec<PathBuf> {
     #[cfg(not(unix))]
     let home: Option<PathBuf> = None;
     for dir in search_order(current, own_folder, home) {
-        let found = archives_in(&dir);
-        if !found.is_empty() {
-            println!("Found {} archive(s) in {}", found.len(), dir.display());
-            return found;
+        if archives_in(&dir).is_empty() {
+            continue;
         }
+        // Repair first, then list: `Title.rar`, `Title (1).rar` and
+        // `Title (2).rar` are one archive, not three.
+        report(&unpacker::repair::fix_volume_names(&dir));
+        let found = archives_in(&dir);
+        println!("Found {} archive(s) in {}", found.len(), dir.display());
+        return found;
     }
     Vec::new()
+}
+
+/// Dropped files: restores lost part numbers in their folders (see
+/// `unpacker::repair`) and returns the paths, renamed where needed.
+fn restore_volume_names(files: &[PathBuf]) -> Vec<PathBuf> {
+    let folder = |f: &PathBuf| match f.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    let mut renamed: Vec<(PathBuf, PathBuf)> = Vec::new();
+    let mut done: HashSet<PathBuf> = HashSet::new();
+    for dir in files.iter().map(folder) {
+        if done.insert(dir.clone()) {
+            let outcome = unpacker::repair::fix_volume_names(&dir);
+            report(&outcome);
+            renamed.extend(outcome.renamed);
+        }
+    }
+    // Same folder + same file name: compare by those, since `x.rar` and
+    // `./x.rar` are the same file.
+    files
+        .iter()
+        .map(|f| {
+            renamed
+                .iter()
+                .find(|(old, _)| {
+                    old.file_name() == f.file_name() && old.parent() == Some(folder(f).as_path())
+                })
+                .map_or_else(
+                    || f.clone(),
+                    |(_, new)| f.with_file_name(new.file_name().unwrap_or_default()),
+                )
+        })
+        .collect()
+}
+
+fn report(outcome: &unpacker::repair::Outcome) {
+    for line in &outcome.notes {
+        println!("{line}");
+    }
 }
 
 /// Where to look for archives when no files are given:
@@ -186,7 +230,7 @@ fn archives_in(dir: &Path) -> Vec<PathBuf> {
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.is_file())
         .collect();
-    discovery::archives_among(&files)
+    discovery::archives_among_on_disk(&files)
 }
 
 /// Unpacks every distinct archive among `files`, then deals with the

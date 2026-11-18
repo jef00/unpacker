@@ -170,6 +170,16 @@ pub(crate) fn last_part_hint(set: &VolumeSet) -> String {
 }
 
 /// Picks the right backend by looking at the first part's magic bytes.
+/// Whether the file at `path` is a compressed tar (a `.gz`, `.bz2`, `.xz` or
+/// `.zst` with a tar inside), whatever it's called. Reads only its start.
+pub fn holds_tar(path: &Path) -> bool {
+    matches!(
+        detect::from_file(path),
+        Ok(Format::Compressed(codec))
+            if tar::TarExtractor::new(&crate::discovery::single(path), Some(codec)).is_ok()
+    )
+}
+
 pub fn open(set: &VolumeSet, password: Option<&str>) -> Result<Box<dyn Extractor>> {
     let format = match detect::from_file(set.first()) {
         // The `.zip` of a spanned set usually starts mid-file, so it has no
