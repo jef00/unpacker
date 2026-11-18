@@ -364,8 +364,19 @@ impl<M: OpenMode> OpenArchive<M, CursorBeforeFile> {
         path: Option<&pathed::RarStr>,
         file: Option<&pathed::RarStr>,
     ) -> UnrarResult<(PM::Output, OpenArchive<M, CursorBeforeHeader>)> {
+        self.process_file_x_with::<PM>(path, file, Default::default())
+    }
+
+    // PATCHED (unpacker): `process_file_x` with the callback's output set up
+    // by the caller, so `ExtractCounting` can share a live counter.
+    fn process_file_x_with<PM: ProcessMode>(
+        self,
+        path: Option<&pathed::RarStr>,
+        file: Option<&pathed::RarStr>,
+        init: PM::Output,
+    ) -> UnrarResult<(PM::Output, OpenArchive<M, CursorBeforeHeader>)> {
         let result = Ok((
-            Internal::<PM>::process_file_raw(&self.handle, path, file)?,
+            Internal::<PM>::process_file_raw_with(&self.handle, path, file, init)?,
             OpenArchive {
                 extra: CursorBeforeHeader,
                 damaged: self.damaged,
@@ -423,6 +434,22 @@ impl OpenArchive<Process, CursorBeforeFile> {
         self.process_file::<Extract>(None, Some(&dest))
     }
 
+    /// PATCHED (unpacker): like [`Self::extract_to`], and adds every byte
+    /// UnRAR writes to `written` as it goes (UnRAR's `UCM_PROCESSDATA`
+    /// callback), so another thread can show real progress. Watching the
+    /// file size doesn't work: on Windows UnRAR sets a large file's full
+    /// size before writing any data.
+    pub fn extract_to_counting<P: AsRef<Path>>(
+        self,
+        file: P,
+        written: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    ) -> UnrarResult<OpenArchive<Process, CursorBeforeHeader>> {
+        let dest = pathed::construct(file.as_ref());
+        Ok(self
+            .process_file_x_with::<ExtractCounting>(None, Some(&dest), written)?
+            .1)
+    }
+
     /// extracting into a directory if the filename has unicode characters
     /// does not work on Linux, so we must specify the full path for Linux
     fn dir_extract(
@@ -462,6 +489,9 @@ struct ReadToVec;
 struct Extract;
 #[derive(Debug)]
 struct Test;
+// PATCHED (unpacker): extract, counting the bytes written.
+#[derive(Debug)]
+struct ExtractCounting;
 
 trait ProcessMode: core::fmt::Debug {
     const OPERATION: private::Operation;
@@ -488,6 +518,14 @@ impl ProcessMode for Extract {
     type Output = ();
 
     fn process_data(_: &mut Self::Output, _: &[u8]) {}
+}
+impl ProcessMode for ExtractCounting {
+    const OPERATION: private::Operation = private::Operation::Extract;
+    type Output = std::sync::Arc<std::sync::atomic::AtomicU64>;
+
+    fn process_data(written: &mut Self::Output, data: &[u8]) {
+        written.fetch_add(data.len() as u64, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 impl ProcessMode for Test {
     const OPERATION: private::Operation = private::Operation::Test;
@@ -541,7 +579,17 @@ impl<M: ProcessMode> Internal<M> {
         path: Option<&pathed::RarStr>,
         file: Option<&pathed::RarStr>,
     ) -> UnrarResult<M::Output> {
-        let mut user_data: Userdata<M::Output> = Default::default();
+        Self::process_file_raw_with(handle, path, file, Default::default())
+    }
+
+    // PATCHED (unpacker): `process_file_raw` with a caller-provided output.
+    fn process_file_raw_with(
+        handle: &Handle,
+        path: Option<&pathed::RarStr>,
+        file: Option<&pathed::RarStr>,
+        init: M::Output,
+    ) -> UnrarResult<M::Output> {
+        let mut user_data: Userdata<M::Output> = (init, None);
         unsafe {
             native::RARSetCallback(
                 handle.0.as_ptr(),

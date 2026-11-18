@@ -357,3 +357,53 @@ fn progress_adds_up_to_the_unpacked_size() {
         .sum();
     assert_eq!(rec.bytes, on_disk);
 }
+
+// ---------------------------------------------------------------------------
+// Progress
+// ---------------------------------------------------------------------------
+
+#[test]
+fn unrar_counts_every_byte_it_writes() {
+    // Progress for RAR comes from UnRAR's data callback, not the file size
+    // (which UnRAR sets in full up front on Windows). The backend tops the
+    // count up at the end of each file, so check the counter itself here.
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    let tmp = copy_fixtures(&[
+        "rar/rar5-vols.part1.rar",
+        "rar/rar5-vols.part2.rar",
+        "rar/rar5-vols.part3.rar",
+    ]);
+    let mut cursor = unrar::Archive::new(&tmp.path().join("rar5-vols.part1.rar"))
+        .open_for_processing()
+        .unwrap();
+    let mut checked = 0;
+    while let Some(header) = cursor.read_header().unwrap() {
+        let (is_dir, size, name) = {
+            let entry = header.entry();
+            (
+                entry.is_directory(),
+                entry.unpacked_size,
+                entry.filename.clone(),
+            )
+        };
+        if is_dir {
+            cursor = header.skip().unwrap();
+            continue;
+        }
+        let dest = tmp.path().join(format!("out-{checked}"));
+        let written = Arc::new(AtomicU64::new(0));
+        cursor = header
+            .extract_to_counting(&dest, Arc::clone(&written))
+            .unwrap();
+
+        assert_eq!(written.load(Ordering::Relaxed), size, "{}", name.display());
+        assert_eq!(fs::metadata(&dest).unwrap().len(), size);
+        checked += 1;
+    }
+    assert_eq!(
+        checked, 2,
+        "bigfile.txt spans all three volumes, smallfile.txt one"
+    );
+}

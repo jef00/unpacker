@@ -16,11 +16,13 @@
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 use unrar::error::{Code, UnrarError, When};
 use unrar::{Archive, FileHeader};
 
-use super::output::{EntryInfo, Plan, TempPath, plan_entry, while_watching};
+use super::output::{EntryInfo, Plan, TempPath, plan_entry, while_counting};
 use super::{Entry, Extractor, Options, Progress};
 use crate::discovery::{Scheme, VolumeSet};
 use crate::error::{Error, Result};
@@ -175,8 +177,12 @@ impl Extractor for RarExtractor {
                 Plan::File(target) => {
                     progress.entry_started(&name, info.size);
                     let temp = TempPath::for_target(&target);
-                    let (next, reported) =
-                        while_watching(temp.path(), progress, || header.extract_to(temp.path()));
+                    // Counted from UnRAR's data callback, not the file size:
+                    // on Windows UnRAR sizes a large file fully up front.
+                    let written = Arc::new(AtomicU64::new(0));
+                    let (next, reported) = while_counting(&written, progress, || {
+                        header.extract_to_counting(temp.path(), Arc::clone(&written))
+                    });
                     let next = next.map_err(|e| self.convert(e, encrypted))?;
                     if is_regular_file(temp.path()) {
                         temp.commit()?;

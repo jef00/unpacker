@@ -13,7 +13,7 @@
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -141,17 +141,21 @@ pub(crate) fn read_error(e: io::Error) -> Error {
     }
 }
 
-/// How often [`while_watching`] looks at the file size.
+/// How often [`while_counting`] passes the count on as progress.
 const WATCH_INTERVAL: Duration = Duration::from_millis(200);
 
-/// Runs `work` (which writes `path`) and meanwhile reports the file's growth
-/// as progress. For libraries that write files themselves (libunrar) and
-/// would otherwise leave the progress bar stuck until a 10 GB file is done.
+/// Runs `work`, which adds the bytes it writes to `written` (libunrar does,
+/// through its data callback), and meanwhile reports that count as
+/// progress. For libraries that write files themselves and would otherwise
+/// leave the progress bar stuck until a 10 GB file is done.
+///
+/// Not the output file's size: on Windows UnRAR sets a large file to its
+/// full size before writing, so the size says 100% from the start.
 ///
 /// Returns `work`'s result and how many bytes were reported, so the caller
 /// can report the rest once the file is complete.
-pub(crate) fn while_watching<T>(
-    path: &Path,
+pub(crate) fn while_counting<T>(
+    written: &AtomicU64,
     progress: &mut dyn Progress,
     work: impl FnOnce() -> T,
 ) -> (T, u64) {
@@ -161,11 +165,10 @@ pub(crate) fn while_watching<T>(
             let mut reported = 0;
             while !done.load(Ordering::Acquire) {
                 thread::park_timeout(WATCH_INTERVAL);
-                if let Ok(len) = fs::metadata(path).map(|m| m.len())
-                    && len > reported
-                {
-                    progress.bytes_written(len - reported);
-                    reported = len;
+                let now = written.load(Ordering::Relaxed);
+                if now > reported {
+                    progress.bytes_written(now - reported);
+                    reported = now;
                 }
             }
             reported
@@ -477,18 +480,12 @@ mod tests {
     }
 
     #[test]
-    fn watching_reports_growth_while_working() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("growing.bin");
+    fn counting_reports_progress_while_working() {
+        let written = AtomicU64::new(0);
         let mut p = Recorder::default();
-        let (result, reported) = while_watching(&path, &mut p, || {
+        let (result, reported) = while_counting(&written, &mut p, || {
             for _ in 0..3 {
-                let mut f = fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&path)
-                    .unwrap();
-                f.write_all(&[0; 1000]).unwrap();
+                written.fetch_add(1000, Ordering::Relaxed);
                 thread::sleep(WATCH_INTERVAL * 2);
             }
             "done"

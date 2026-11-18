@@ -115,7 +115,7 @@ Rules of the road:
 ## Testing
 
 ```sh
-cargo test             # 159 tests
+cargo test             # 160 tests
 cargo test --release   # same suite, optimised (what ships)
 ```
 
